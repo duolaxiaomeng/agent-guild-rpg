@@ -105,6 +105,10 @@ describe("submission flow", () => {
       rationale: "Clear goal, evidence of correction, and visible artifact.",
       riskFlags: []
     });
+    expect(response.body.queue).toEqual({
+      jobId: "review-submission-1",
+      status: "queued"
+    });
   });
 
   it("records a teacher review decision", async () => {

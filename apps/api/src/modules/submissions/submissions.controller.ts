@@ -1,4 +1,5 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Inject, Post } from "@nestjs/common";
+import { ReviewQueueService } from "../queue/review.queue";
 
 type SubmissionBody = {
   studentId: string;
@@ -20,16 +21,23 @@ type SubmissionBody = {
 
 @Controller("submissions")
 export class SubmissionsController {
+  constructor(
+    @Inject(ReviewQueueService)
+    private readonly reviewQueue: ReviewQueueService
+  ) {}
+
   @Post()
-  create(@Body() body: SubmissionBody) {
+  async create(@Body() body: SubmissionBody) {
     const submissionId = "submission-1";
+    const queue = await this.reviewQueue.enqueue(submissionId);
 
     return {
       submission: {
         id: submissionId,
         ...body
       },
-      review: this.createSuggestedReview(submissionId)
+      review: this.createSuggestedReview(submissionId),
+      queue
     };
   }
 
