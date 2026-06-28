@@ -95,13 +95,15 @@ describe("submission flow", () => {
       });
 
     expect(response.status).toBe(201);
-    expect(response.body).toEqual({
-      id: "grant-1",
+    expect(response.body).toMatchObject({
       roomId: "room-1",
       granteeId: "11111111-1111-4111-8111-111111111111",
       status: "approved",
       scope: "chat_summary"
     });
+    expect(response.body.id).toEqual(expect.any(String));
+    expect(response.body.createdAt).toEqual(expect.any(String));
+    expect(response.body.expiresAt).toEqual(expect.any(String));
   });
 
   it("accepts a student submission and returns a suggested review", async () => {
