@@ -37,6 +37,15 @@ pnpm --filter api exec prisma db push
 pnpm --filter api exec tsx prisma/seed.ts
 ```
 
+## Redis 评审队列
+
+评审队列使用 Redis + BullMQ。未设置 `REDIS_URL` 时，开发环境默认连接 `redis://127.0.0.1:6379`。
+
+```bash
+export REDIS_URL="redis://localhost:6379"
+pnpm dev:api
+```
+
 5. 分别启动 API 与 Web
 
 ```bash

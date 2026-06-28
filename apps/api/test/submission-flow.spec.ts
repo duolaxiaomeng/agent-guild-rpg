@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { seedDatabase } from "../prisma/seed";
 import { AppModule } from "../src/app.module";
+import { ReviewQueueService } from "../src/modules/queue/review.queue";
 import { prepareTestDatabase } from "./support/test-database";
 
 describe("submission flow", () => {
@@ -16,7 +17,15 @@ describe("submission flow", () => {
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
-    }).compile();
+    })
+      .overrideProvider(ReviewQueueService)
+      .useValue({
+        enqueue: async (submissionId: string) => ({
+          jobId: `review-${submissionId}`,
+          status: "queued" as const
+        })
+      })
+      .compile();
 
     app = moduleRef.createNestApplication();
     await app.init();

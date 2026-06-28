@@ -24,7 +24,9 @@ describe("realtime gateway", () => {
 
 describe("review queue service", () => {
   it("returns a queued review job for a submission", async () => {
-    const service = new ReviewQueueService();
+    const service = new ReviewQueueService(() => ({
+      add: vi.fn().mockResolvedValue(undefined)
+    }));
 
     await expect(service.enqueue("submission-1")).resolves.toEqual({
       jobId: "review-submission-1",

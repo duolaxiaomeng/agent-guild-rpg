@@ -268,3 +268,27 @@
 - 构建验收要补 `web build`，因为“服务端读 + 客户端写”的边界最容易在类型检查和 SSR 序列化阶段暴露问题
 
 这样能同时保住服务端页面的真实数据读取能力、客户端写动作的交互体验，以及 App Router 下可构建可测试的组件边界。
+
+### 22. 定向 API 验收要直连 Vitest 文件路径，不要把红绿循环交给模糊脚本过滤
+
+当 API 仓库已经开始累积多条集成套件，而你只想对某个任务做 TDD 红绿循环时，不要默认依赖 `pnpm --filter api test -- auth-flow` 这类脚本转发；它可能仍会把无关测试一起跑进来，让基线噪音掩盖真正的失败原因。
+
+- 红灯阶段优先直接使用 `pnpm --filter api exec vitest run test/auth-flow.spec.ts` 这类命令，显式钉住要执行的文件
+- 如果一个任务会影响相邻读写流，就把受影响的相关文件一起列进命令，例如 `auth-flow`、`room-access`、`world-api`、`submission-flow`
+- 先确认失败原因真的是当前能力缺失，例如 token 仍是假值、列表路由仍不存在，而不是被无关 suite 或历史基线失败打断
+- 绿灯后再跑更宽一层的相关套件与 `api build`，把“局部红绿循环”和“任务级验收”分成两个清晰阶段
+- README、计划文档和验收记录里的命令也要保持这套口径，避免协作者照着脚本跑却看到另一组失败
+
+这样能让 TDD 的每一次失败和转绿都保持可解释，减少 monorepo 中无关测试基线对当前任务判断的干扰。
+
+### 23. Redis 队列先懒连接，流程测试再用 provider override 隔离外部依赖
+
+当教学平台把 BullMQ 真正接进提交流程时，不要让 `Queue` 在模块加载或测试启动阶段就强连本地 Redis；应先把连接创建收口到懒执行边界，再让集成测试显式覆盖或替换队列 provider。
+
+- 队列服务优先暴露 `queueFactory` 或同等注入点，只在真正执行 `enqueue` 时才创建 BullMQ `Queue`
+- 队列契约测试直接断言 `queue.add()` 的任务名、payload、`jobId` 与 `removeOnComplete/removeOnFail` 选项，避免被“只返回 queued 响应”的 stub 假绿
+- 业务流集成测试如 `submission-flow` 应通过 `overrideProvider(ReviewQueueService)` 注入最小假实现，验证 HTTP 契约与数据库写入，而不是把测试稳定性绑死到本机 Redis
+- 运行时文档要单独说明 `REDIS_URL` 与默认连接地址，让“本地没起 Redis”成为显式环境问题，而不是隐式构建故障
+- 任务级验收保持两层：一层跑真实队列契约测试与 `api build`，一层跑隔离外部依赖后的提交流程测试，分别证明“队列接入成立”和“主流程未被队列拖垮”
+
+这样能同时得到真实的 Redis/BullMQ 接入、稳定可解释的 TDD 红绿循环，以及不被外部基础设施噪音污染的教学主流程测试。
