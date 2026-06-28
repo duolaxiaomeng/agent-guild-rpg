@@ -1,11 +1,13 @@
 import { ChatRoom } from "../../components/chat/chat-room";
 import { DayPanel } from "../../components/quests/day-panel";
 import {
-  getChatOverview,
-  getQuestList,
+  getChatOverviewSafe,
+  getQuestListSafe,
   type ChatOverviewPayload,
   type QuestSummary
 } from "../../lib/api-client";
+
+export const dynamic = "force-dynamic";
 
 function toDayLabel(dayId: string) {
   return `Day ${dayId.replace("day-", "")}`;
@@ -60,9 +62,12 @@ function toSubmissionMeta(
 }
 
 export default async function ChatPage() {
-  const [chatOverview, quests] = await Promise.all([
-    getChatOverview("student-1"),
-    getQuestList()
+  const [
+    { data: chatOverview, degraded: chatDegraded },
+    { data: quests, degraded: questsDegraded }
+  ] = await Promise.all([
+    getChatOverviewSafe("student-1"),
+    getQuestListSafe()
   ]);
   const currentQuest = quests.find((quest) => quest.status === "open") ?? quests[0];
   const dayItems = quests.map((quest) => ({
@@ -75,6 +80,9 @@ export default async function ChatPage() {
 
   return (
     <main>
+      {chatDegraded || questsDegraded ? (
+        <p>聊天与关卡数据暂不可达，当前显示安全空态。</p>
+      ) : null}
       <ChatRoom
         studentName={chatOverview.studentName}
         agentLabel={chatOverview.agentLabel}

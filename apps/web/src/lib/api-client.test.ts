@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getChatOverviewSafe,
   getChatOverview,
+  getGuildListSafe,
   getGuildList,
+  getQuestListSafe,
   getQuestList,
+  getReviewQueueSafe,
   getReviewQueue,
+  getWorldPayloadSafe,
   getWorldPayload
 } from "./api-client";
 
@@ -20,6 +25,7 @@ describe("api client", () => {
     };
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
       json: async () => mockPayload
     } as Response);
 
@@ -40,6 +46,7 @@ describe("api client", () => {
     ];
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
       json: async () => mockPayload
     } as Response);
 
@@ -55,6 +62,7 @@ describe("api client", () => {
     ];
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
       json: async () => mockPayload
     } as Response);
 
@@ -87,6 +95,7 @@ describe("api client", () => {
     };
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
       json: async () => mockPayload
     } as Response);
 
@@ -119,6 +128,7 @@ describe("api client", () => {
     };
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
       json: async () => mockPayload
     } as Response);
 
@@ -129,5 +139,64 @@ describe("api client", () => {
         cache: "no-store"
       }
     );
+  });
+
+  it("returns fallback data when the world payload api is unreachable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getWorldPayloadSafe()).resolves.toMatchObject({
+      degraded: true,
+      data: {
+        currentDay: 0,
+        location: "offline",
+        homesteads: []
+      }
+    });
+  });
+
+  it("returns fallback data when the guild api is unreachable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getGuildListSafe()).resolves.toMatchObject({
+      degraded: true,
+      data: []
+    });
+  });
+
+  it("returns fallback data when the teacher api is unreachable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getQuestListSafe()).resolves.toMatchObject({
+      degraded: true,
+      data: []
+    });
+
+    await expect(getReviewQueueSafe()).resolves.toMatchObject({
+      degraded: true,
+      data: {
+        summary: {
+          pendingCount: 0,
+          reviewedToday: 0,
+          flaggedCount: 0
+        },
+        items: []
+      }
+    });
+  });
+
+  it("returns fallback data when the chat overview api is unreachable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getChatOverviewSafe("student-1")).resolves.toMatchObject({
+      degraded: true,
+      data: {
+        studentId: "student-1",
+        studentName: "当前学生",
+        agentLabel: "Agent 暂不可用",
+        sessionStatus: "failed",
+        latestSubmission: null,
+        collaborationGuests: []
+      }
+    });
   });
 });

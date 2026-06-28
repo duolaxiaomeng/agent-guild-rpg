@@ -1,11 +1,13 @@
 import { DayPanel } from "../../components/quests/day-panel";
 import { ReviewQueue } from "../../components/teacher/review-queue";
 import {
-  getQuestList,
-  getReviewQueue,
+  getQuestListSafe,
+  getReviewQueueSafe,
   type QuestSummary,
   type ReviewQueueItem
 } from "../../lib/api-client";
+
+export const dynamic = "force-dynamic";
 
 function toDayLabel(dayId: string) {
   return `Day ${dayId.replace("day-", "")}`;
@@ -52,7 +54,10 @@ function toSubmittedAtLabel(submittedAt: string) {
 }
 
 export default async function TeacherPage() {
-  const [quests, reviewQueue] = await Promise.all([getQuestList(), getReviewQueue()]);
+  const [
+    { data: quests, degraded: questsDegraded },
+    { data: reviewQueue, degraded: reviewQueueDegraded }
+  ] = await Promise.all([getQuestListSafe(), getReviewQueueSafe()]);
   const currentQuest = quests.find((quest) => quest.status === "open") ?? quests[0];
 
   const dayItems = quests.map((quest) => ({
@@ -65,6 +70,9 @@ export default async function TeacherPage() {
 
   return (
     <main>
+      {questsDegraded || reviewQueueDegraded ? (
+        <p>评审与关卡数据暂不可达，当前显示安全空态。</p>
+      ) : null}
       <ReviewQueue
         summary={reviewQueue.summary}
         items={reviewQueue.items.map((item) => ({
