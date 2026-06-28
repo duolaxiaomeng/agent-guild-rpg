@@ -6,5 +6,6 @@ coverage
 .env
 .env.local
 apps/api/prisma/dev.db
+apps/api/.tmp
 playwright-report
 test-results

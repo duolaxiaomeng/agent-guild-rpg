@@ -1,13 +1,18 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
+import { prepareTestDatabase } from "./support/test-database";
 
 describe("world api", () => {
   let app: INestApplication;
+  let prisma: PrismaClient;
 
   beforeAll(async () => {
+    prisma = await prepareTestDatabase("world-api");
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     }).compile();
@@ -18,6 +23,7 @@ describe("world api", () => {
 
   afterAll(async () => {
     await app.close();
+    await prisma.$disconnect();
   });
 
   it("returns a login payload for teacher and student roles", async () => {
@@ -46,15 +52,28 @@ describe("world api", () => {
     const response = await request(app.getHttpServer()).get("/world");
 
     expect(response.status).toBe(200);
-    expect(response.body.currentDay).toBeTypeOf("number");
+    expect(response.body.currentDay).toBe(1);
     expect(response.body.location).toBe("main_city");
-    expect(Array.isArray(response.body.homesteads)).toBe(true);
-    expect(response.body.homesteads[0]).toMatchObject({
-      ownerId: expect.any(String),
-      displayName: expect.any(String),
-      location: "homestead",
-      isOnline: true
-    });
+    expect(response.body.homesteads).toEqual([
+      {
+        ownerId: "student-1",
+        displayName: "Lin",
+        location: "homestead",
+        isOnline: true
+      },
+      {
+        ownerId: "student-2",
+        displayName: "Mo",
+        location: "homestead",
+        isOnline: false
+      },
+      {
+        ownerId: "student-3",
+        displayName: "Kai",
+        location: "homestead",
+        isOnline: true
+      }
+    ]);
   });
 
   it("returns the day quest list", async () => {

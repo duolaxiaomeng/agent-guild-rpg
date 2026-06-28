@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -66,6 +66,7 @@ model User {
   role                  UserRole
   email                 String            @unique
   displayName           String
+  isOnline              Boolean           @default(true)
   createdAt             DateTime          @default(now())
   homestead             Homestead?
   memberships           GuildMembership[]

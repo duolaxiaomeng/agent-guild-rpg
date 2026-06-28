@@ -1,13 +1,18 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
+import { prepareTestDatabase } from "./support/test-database";
 
 describe("submission flow", () => {
   let app: INestApplication;
+  let prisma: PrismaClient;
 
   beforeAll(async () => {
+    prisma = await prepareTestDatabase("submission-flow");
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     }).compile();
@@ -18,16 +23,18 @@ describe("submission flow", () => {
 
   afterAll(async () => {
     await app.close();
+    await prisma.$disconnect();
   });
 
-  it("lists guilds and creates a guild", async () => {
+  it("lists seeded guilds and persists a created guild", async () => {
     const listResponse = await request(app.getHttpServer()).get("/guilds");
     const createResponse = await request(app.getHttpServer())
       .post("/guilds")
       .send({
-        name: "Morning Forge",
+        name: "Night Shift",
         description: "Students pair on daily agent quests and share review notes."
       });
+    const refreshedListResponse = await request(app.getHttpServer()).get("/guilds");
 
     expect(listResponse.status).toBe(200);
     expect(listResponse.body).toEqual([
@@ -41,12 +48,28 @@ describe("submission flow", () => {
 
     expect(createResponse.status).toBe(201);
     expect(createResponse.body).toEqual({
-      id: "guild-1",
-      name: "Morning Forge",
+      id: expect.any(String),
+      name: "Night Shift",
       description: "Students pair on daily agent quests and share review notes.",
       memberCount: 1,
       collaborationPoints: 0
     });
+
+    expect(refreshedListResponse.status).toBe(200);
+    expect(refreshedListResponse.body).toEqual([
+      {
+        id: "guild-1",
+        name: "Morning Forge",
+        memberCount: 3,
+        collaborationPoints: 12
+      },
+      {
+        id: createResponse.body.id,
+        name: "Night Shift",
+        memberCount: 1,
+        collaborationPoints: 0
+      }
+    ]);
   });
 
   it("creates a room access grant", async () => {

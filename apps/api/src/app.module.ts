@@ -9,8 +9,10 @@ import { ReviewsController } from "./modules/reviews/reviews.controller";
 import { RoomsController } from "./modules/rooms/rooms.controller";
 import { SubmissionsController } from "./modules/submissions/submissions.controller";
 import { WorldController } from "./modules/world/world.controller";
+import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
+  imports: [PrismaModule],
   controllers: [
     HealthController,
     AuthController,
