@@ -54,6 +54,7 @@ pnpm dev:web
 - 工作区测试：`pnpm test`
 - Web smoke test：`pnpm test:e2e`
 - 工作区构建：`pnpm build`
+- Playwright 会自动拉起独立的 Web 服务：`http://localhost:3100`，不占用本地开发 Web `3000`，也不影响 API `3001`
 
 如果只想运行单个 smoke 用例，也可以执行：
 

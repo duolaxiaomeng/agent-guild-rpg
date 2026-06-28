@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
+    "dev:e2e": "next dev --port 3100",
     "build": "next build",
     "test": "vitest run",
     "test:e2e": "playwright test"
