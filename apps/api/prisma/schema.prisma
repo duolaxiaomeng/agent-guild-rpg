@@ -7,10 +7,181 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  teacher
+  student
+}
+
+enum GuildMembershipRole {
+  leader
+  member
+  visitor
+}
+
+enum MembershipStatus {
+  active
+  invited
+  removed
+}
+
+enum RoomType {
+  chat_room
+  workshop
+  archive
+  guild_hall
+}
+
+enum QuestStatus {
+  open
+  locked
+  completed
+}
+
+enum AgentSessionStatus {
+  active
+  completed
+  failed
+}
+
+enum SubmissionTriggerType {
+  button
+  chat_command
+  schedule
+}
+
+enum ReviewDecision {
+  approve
+  adjust
+  reject
+}
+
+enum ContributionKind {
+  peer_review
+  collaboration
+  build_support
+}
+
 model User {
-  id          String   @id @default(uuid())
-  role        String
-  email       String   @unique
-  displayName String
-  createdAt   DateTime @default(now())
+  id                    String            @id @default(uuid())
+  role                  UserRole
+  email                 String            @unique
+  displayName           String
+  createdAt             DateTime          @default(now())
+  homestead             Homestead?
+  memberships           GuildMembership[]
+  ownedGuilds           Guild[]           @relation("GuildOwner")
+  agentSessions         AgentSession[]
+  submissions           AgentSubmission[]
+  reviewDecisions       ReviewResult[]    @relation("ReviewReviewer")
+  contributionLogs      ContributionLog[] @relation("ContributionActor")
+  contributionsReceived ContributionLog[] @relation("ContributionTarget")
+}
+
+model CourseWorld {
+  id          String            @id @default(uuid())
+  name        String
+  currentDay  Int
+  isUnlocked  Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  quests      QuestDay[]
+  submissions AgentSubmission[]
+}
+
+model Homestead {
+  id      String @id @default(uuid())
+  ownerId String @unique
+  title   String
+  owner   User   @relation(fields: [ownerId], references: [id])
+  rooms   Room[]
+}
+
+model Guild {
+  id                  String            @id @default(uuid())
+  name                String            @unique
+  description         String
+  ownerId             String
+  collaborationPoints Int               @default(0)
+  owner               User              @relation("GuildOwner", fields: [ownerId], references: [id])
+  memberships         GuildMembership[]
+}
+
+model GuildMembership {
+  id      String              @id @default(uuid())
+  guildId String
+  userId  String
+  role    GuildMembershipRole
+  status  MembershipStatus
+  guild   Guild               @relation(fields: [guildId], references: [id])
+  user    User                @relation(fields: [userId], references: [id])
+
+  @@unique([guildId, userId])
+}
+
+model Room {
+  id          String     @id @default(uuid())
+  homesteadId String?
+  type        RoomType
+  name        String
+  homestead   Homestead? @relation(fields: [homesteadId], references: [id])
+}
+
+model QuestDay {
+  id            String            @id
+  courseWorldId String
+  title         String
+  status        QuestStatus
+  courseWorld   CourseWorld       @relation(fields: [courseWorldId], references: [id])
+  submissions   AgentSubmission[]
+}
+
+model AgentSession {
+  id          String             @id @default(uuid())
+  studentId   String
+  provider    String
+  status      AgentSessionStatus
+  createdAt   DateTime           @default(now())
+  student     User               @relation(fields: [studentId], references: [id])
+  submissions AgentSubmission[]
+}
+
+model AgentSubmission {
+  id                  String                @id @default(uuid())
+  studentId           String
+  courseWorldId       String
+  dayId               String
+  agentSessionId      String
+  triggerType         SubmissionTriggerType
+  conversationSummary String
+  workSummary         String
+  selfReflection      String
+  createdAt           DateTime              @default(now())
+  student             User                  @relation(fields: [studentId], references: [id])
+  courseWorld         CourseWorld           @relation(fields: [courseWorldId], references: [id])
+  day                 QuestDay              @relation(fields: [dayId], references: [id])
+  agentSession        AgentSession          @relation(fields: [agentSessionId], references: [id])
+  reviewResult        ReviewResult?
+}
+
+model ReviewResult {
+  id             String          @id @default(uuid())
+  submissionId   String          @unique
+  reviewerId     String?
+  suggestedScore Int
+  finalScore     Int?
+  decision       ReviewDecision?
+  rationale      String
+  createdAt      DateTime        @default(now())
+  submission     AgentSubmission @relation(fields: [submissionId], references: [id])
+  reviewer       User?           @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+}
+
+model ContributionLog {
+  id           String           @id @default(uuid())
+  actorId      String
+  targetUserId String
+  kind         ContributionKind
+  points       Int
+  createdAt    DateTime         @default(now())
+  actor        User             @relation("ContributionActor", fields: [actorId], references: [id])
+  targetUser   User             @relation("ContributionTarget", fields: [targetUserId], references: [id])
 }
