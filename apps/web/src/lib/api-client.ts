@@ -52,6 +52,38 @@ export type ReviewQueuePayload = {
   items: ReviewQueueItem[];
 };
 
+export type CreateSubmissionPayload = {
+  studentId: string;
+  courseWorldId: string;
+  dayId: string;
+  agentSessionId: string;
+  triggerType: "button" | "chat_command" | "schedule";
+  conversationSummary: string;
+  workSummary: string;
+  artifacts: Array<{
+    kind: string;
+    label: string;
+    url: string;
+  }>;
+  selfReflection: string;
+  agentEvaluationHints: string[];
+  timestamp: string;
+};
+
+export type CreateSubmissionResponse = {
+  submission: {
+    id: string;
+  };
+};
+
+export type DecideReviewPayload = {
+  submissionId: string;
+  finalScore: number;
+  decision: "approve" | "adjust" | "reject";
+};
+
+export type DecideReviewResponse = DecideReviewPayload;
+
 export type ChatOverviewPayload = {
   studentId: string;
   studentName: string;
@@ -112,6 +144,25 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function postJson<TResponse, TBody>(
+  path: string,
+  body: TBody
+): Promise<TResponse> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to post ${path}: ${response.status}`);
+  }
+
+  return response.json() as Promise<TResponse>;
+}
+
 async function fetchJsonSafe<T>(
   path: string,
   fallback: T
@@ -169,4 +220,18 @@ export async function getChatOverview(studentId: string) {
 
 export async function getChatOverviewSafe(studentId: string) {
   return fetchJsonSafe(`/chat?studentId=${studentId}`, EMPTY_CHAT_OVERVIEW(studentId));
+}
+
+export async function createSubmission(payload: CreateSubmissionPayload) {
+  return postJson<CreateSubmissionResponse, CreateSubmissionPayload>(
+    "/submissions",
+    payload
+  );
+}
+
+export async function decideReview(payload: DecideReviewPayload) {
+  return postJson<DecideReviewResponse, DecideReviewPayload>(
+    "/reviews/decide",
+    payload
+  );
 }

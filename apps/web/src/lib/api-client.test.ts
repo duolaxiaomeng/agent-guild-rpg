@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createSubmission,
+  decideReview,
   getChatOverviewSafe,
   getChatOverview,
   getGuildListSafe,
@@ -139,6 +141,102 @@ describe("api client", () => {
         cache: "no-store"
       }
     );
+  });
+
+  it("posts a chat submission to the write api", async () => {
+    const mockPayload = {
+      submission: {
+        id: "submission-1"
+      }
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(
+      createSubmission({
+        studentId: "student-1",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        agentSessionId: "session-1",
+        triggerType: "button",
+        conversationSummary:
+          "Student compared expected and actual output, then corrected the prompt.",
+        workSummary: "Student submitted progress from the chat page with summary notes.",
+        artifacts: [
+          {
+            kind: "doc",
+            label: "README",
+            url: "https://example.com/readme"
+          }
+        ],
+        selfReflection: "I learned to make the agent output easier to verify today.",
+        agentEvaluationHints: ["submitted from chat"],
+        timestamp: "2026-06-29T12:00:00.000Z"
+      })
+    ).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/submissions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        studentId: "student-1",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        agentSessionId: "session-1",
+        triggerType: "button",
+        conversationSummary:
+          "Student compared expected and actual output, then corrected the prompt.",
+        workSummary: "Student submitted progress from the chat page with summary notes.",
+        artifacts: [
+          {
+            kind: "doc",
+            label: "README",
+            url: "https://example.com/readme"
+          }
+        ],
+        selfReflection: "I learned to make the agent output easier to verify today.",
+        agentEvaluationHints: ["submitted from chat"],
+        timestamp: "2026-06-29T12:00:00.000Z"
+      })
+    });
+  });
+
+  it("posts a teacher review decision to the write api", async () => {
+    const mockPayload = {
+      submissionId: "submission-1",
+      finalScore: 90,
+      decision: "approve"
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(
+      decideReview({
+        submissionId: "submission-1",
+        finalScore: 90,
+        decision: "approve"
+      })
+    ).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews/decide", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        submissionId: "submission-1",
+        finalScore: 90,
+        decision: "approve"
+      })
+    });
   });
 
   it("returns fallback data when the world payload api is unreachable", async () => {

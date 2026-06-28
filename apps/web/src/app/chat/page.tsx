@@ -85,6 +85,8 @@ export default async function ChatPage() {
       ) : null}
       <ChatRoom
         studentName={chatOverview.studentName}
+        studentId={chatOverview.studentId}
+        dayId={currentQuest?.id ?? "day-1"}
         agentLabel={chatOverview.agentLabel}
         sessionStatusLabel={toSessionStatusLabel(chatOverview.sessionStatus)}
         sessionSummary={chatOverview.sessionSummary}
