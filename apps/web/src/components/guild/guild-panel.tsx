@@ -1,38 +1,19 @@
-type GuildMember = {
-  id: string;
-  name: string;
-  status: string;
-  role: string;
-};
+import type { GuildSummary } from "../../lib/api-client";
 
 type GuildPanelProps = {
-  guildName: string;
-  collaborationPoints: number;
-  missionTitle: string;
-  missionSummary: string;
-  members: GuildMember[];
+  guilds: GuildSummary[];
 };
 
-export function GuildPanel({
-  guildName,
-  collaborationPoints,
-  missionTitle,
-  missionSummary,
-  members
-}: GuildPanelProps) {
+export function GuildPanel({ guilds }: GuildPanelProps) {
   return (
     <section>
       <h1>工会大厅</h1>
-      <p>{guildName}</p>
-      <p>协作积分 {collaborationPoints}</p>
-      <h2>{missionTitle}</h2>
-      <p>{missionSummary}</p>
       <ul>
-        {members.map((member) => (
-          <li key={member.id}>
-            <strong>{member.name}</strong>
-            <span>{member.status}</span>
-            <span>{member.role}</span>
+        {guilds.map((guild) => (
+          <li key={guild.id}>
+            <strong>{guild.name}</strong>
+            <p>成员 {guild.memberCount}</p>
+            <p>协作积分 {guild.collaborationPoints}</p>
           </li>
         ))}
       </ul>

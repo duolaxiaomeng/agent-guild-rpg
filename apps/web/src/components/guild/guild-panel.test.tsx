@@ -3,26 +3,30 @@ import { describe, expect, it } from "vitest";
 import { GuildPanel } from "./guild-panel";
 
 describe("GuildPanel", () => {
-  it("renders guild collaboration details and member presence", () => {
+  it("renders real guild summary cards", () => {
     render(
       <GuildPanel
-        guildName="Morning Forge"
-        collaborationPoints={128}
-        missionTitle="本周互测挑战"
-        missionSummary="每位成员至少完成一次同伴互测并记录改进建议。"
-        members={[
-          { id: "m1", name: "Lin", status: "正在互测", role: "会长" },
-          { id: "m2", name: "Mia", status: "空闲", role: "成员" }
+        guilds={[
+          {
+            id: "guild-1",
+            name: "Morning Forge",
+            memberCount: 3,
+            collaborationPoints: 12
+          },
+          {
+            id: "guild-2",
+            name: "Night Owls",
+            memberCount: 2,
+            collaborationPoints: 8
+          }
         ]}
       />
     );
 
     expect(screen.getByRole("heading", { name: "工会大厅" })).toBeInTheDocument();
     expect(screen.getByText("Morning Forge")).toBeInTheDocument();
-    expect(screen.getByText("协作积分 128")).toBeInTheDocument();
-    expect(screen.getByText("本周互测挑战")).toBeInTheDocument();
-    expect(screen.getByText("Lin")).toBeInTheDocument();
-    expect(screen.getByText("正在互测")).toBeInTheDocument();
-    expect(screen.getByText("会长")).toBeInTheDocument();
+    expect(screen.getByText("成员 3")).toBeInTheDocument();
+    expect(screen.getByText("协作积分 12")).toBeInTheDocument();
+    expect(screen.getByText("Night Owls")).toBeInTheDocument();
   });
 });

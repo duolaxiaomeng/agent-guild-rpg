@@ -1,17 +1,15 @@
 type ReviewQueueSummary = {
-  pendingCount: number;
-  reviewedToday: number;
-  flaggedCount: number;
+  currentDayLabel: string;
+  completedCount: number;
+  activeCount: number;
+  lockedCount: number;
 };
 
 type ReviewQueueItem = {
-  submissionId: string;
-  studentName: string;
-  guildName: string;
-  suggestedScore: number;
-  rationale: string;
-  decision: string;
-  dayLabel: string;
+  id: string;
+  label: string;
+  title: string;
+  statusLabel: string;
 };
 
 type ReviewQueueProps = {
@@ -24,19 +22,17 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
     <section>
       <h1>老师工作台</h1>
       <div>
-        <span>待审核 {summary.pendingCount}</span>
-        <span>今日已审 {summary.reviewedToday}</span>
-        <span>风险标记 {summary.flaggedCount}</span>
+        <span>当前 Day {summary.currentDayLabel}</span>
+        <span>已完成 {summary.completedCount}</span>
+        <span>进行中 {summary.activeCount}</span>
+        <span>未解锁 {summary.lockedCount}</span>
       </div>
       <ul>
         {items.map((item) => (
-          <li key={item.submissionId}>
-            <strong>{item.studentName}</strong>
-            <p>{item.guildName}</p>
-            <p>{item.dayLabel}</p>
-            <p>{item.suggestedScore}</p>
-            <p>{item.decision}</p>
-            <p>{item.rationale}</p>
+          <li key={item.id}>
+            <strong>{item.label}</strong>
+            <p>{item.title}</p>
+            <p>{item.statusLabel}</p>
           </li>
         ))}
       </ul>

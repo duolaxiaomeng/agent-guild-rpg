@@ -1,48 +1,69 @@
 import { DayPanel } from "../../components/quests/day-panel";
 import { ReviewQueue } from "../../components/teacher/review-queue";
+import { getQuestList, type QuestSummary } from "../../lib/api-client";
 
-const dayItems = [
-  {
-    id: "day-1",
-    label: "Day 1",
-    title: "首次 Agent 提交",
-    status: "completed" as const,
-    reward: "全部学生已通过"
-  },
-  {
-    id: "day-2",
-    label: "Day 2",
-    title: "提示词迭代",
-    status: "current" as const,
-    reward: "待老师开放互测任务"
-  },
-  {
-    id: "day-3",
-    label: "Day 3",
-    title: "协作拆解",
-    status: "locked" as const,
-    reward: "解锁工会挑战"
+function toDayLabel(dayId: string) {
+  return `Day ${dayId.replace("day-", "")}`;
+}
+
+function toDayStatus(status: QuestSummary["status"]) {
+  if (status === "completed") {
+    return "completed" as const;
   }
-];
 
-export default function TeacherPage() {
+  if (status === "open") {
+    return "current" as const;
+  }
+
+  return "locked" as const;
+}
+
+function toRewardText(status: QuestSummary["status"]) {
+  if (status === "completed") {
+    return "已达成，可进入回顾";
+  }
+
+  if (status === "open") {
+    return "等待学生完成当日任务";
+  }
+
+  return "等待上一关完成后解锁";
+}
+
+export default async function TeacherPage() {
+  const quests = await getQuestList();
+  const currentQuest = quests.find((quest) => quest.status === "open") ?? quests[0];
+
+  const dayItems = quests.map((quest) => ({
+    id: quest.id,
+    label: toDayLabel(quest.id),
+    title: quest.title,
+    status: toDayStatus(quest.status),
+    reward: toRewardText(quest.status)
+  }));
+
   return (
     <main>
       <ReviewQueue
-        summary={{ pendingCount: 3, reviewedToday: 8, flaggedCount: 1 }}
-        items={[
-          {
-            submissionId: "submission-1",
-            studentName: "Lin",
-            guildName: "Morning Forge",
-            suggestedScore: 85,
-            rationale: "目标清晰，并完成了一轮修正。",
-            decision: "approve",
-            dayLabel: "Day 1"
-          }
-        ]}
+        summary={{
+          currentDayLabel: currentQuest ? toDayLabel(currentQuest.id) : "暂无任务",
+          completedCount: quests.filter((quest) => quest.status === "completed").length,
+          activeCount: quests.filter((quest) => quest.status === "open").length,
+          lockedCount: quests.filter((quest) => quest.status === "locked").length
+        }}
+        items={quests.map((quest) => ({
+          id: quest.id,
+          label: toDayLabel(quest.id),
+          title: quest.title,
+          statusLabel:
+            quest.status === "completed"
+              ? "已完成"
+              : quest.status === "open"
+                ? "进行中"
+                : "未解锁"
+        }))}
       />
-      <DayPanel currentDayId="day-2" days={dayItems} />
+      <DayPanel currentDayId={currentQuest?.id ?? ""} days={dayItems} />
     </main>
   );
 }

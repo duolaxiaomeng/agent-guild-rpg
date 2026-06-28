@@ -3,30 +3,31 @@ import { describe, expect, it } from "vitest";
 import { ReviewQueue } from "./review-queue";
 
 describe("ReviewQueue", () => {
-  it("shows teacher review items, suggested score, and decisions", () => {
+  it("shows teacher quest overview derived from live data", () => {
     render(
       <ReviewQueue
-        summary={{ pendingCount: 3, reviewedToday: 8, flaggedCount: 1 }}
+        summary={{
+          currentDayLabel: "Day 2",
+          completedCount: 1,
+          activeCount: 1,
+          lockedCount: 1
+        }}
         items={[
           {
-            submissionId: "submission-1",
-            studentName: "Lin",
-            guildName: "Morning Forge",
-            suggestedScore: 85,
-            rationale: "目标清晰，并完成了一轮修正。",
-            decision: "approve",
-            dayLabel: "Day 1"
+            id: "day-2",
+            label: "Day 2",
+            title: "Prompt Iteration",
+            statusLabel: "进行中"
           }
         ]}
       />
     );
 
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
-    expect(screen.getByText("待审核 3")).toBeInTheDocument();
-    expect(screen.getByText("Lin")).toBeInTheDocument();
-    expect(screen.getByText("Morning Forge")).toBeInTheDocument();
-    expect(screen.getByText("85")).toBeInTheDocument();
-    expect(screen.getByText("approve")).toBeInTheDocument();
-    expect(screen.getByText("Day 1")).toBeInTheDocument();
+    expect(screen.getByText("当前 Day Day 2")).toBeInTheDocument();
+    expect(screen.getByText("已完成 1")).toBeInTheDocument();
+    expect(screen.getByText("进行中 1")).toBeInTheDocument();
+    expect(screen.getByText("未解锁 1")).toBeInTheDocument();
+    expect(screen.getByText("Prompt Iteration")).toBeInTheDocument();
   });
 });
