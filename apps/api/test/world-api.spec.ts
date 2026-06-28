@@ -1,6 +1,6 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, QuestStatus } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -77,12 +77,22 @@ describe("world api", () => {
   });
 
   it("returns the day quest list", async () => {
+    await prisma.questDay.create({
+      data: {
+        id: "day-3",
+        courseWorldId: "course-world-1",
+        title: "Peer Review Prep",
+        status: QuestStatus.completed
+      }
+    });
+
     const response = await request(app.getHttpServer()).get("/quests");
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual([
       { id: "day-1", title: "First Agent Session", status: "open" },
-      { id: "day-2", title: "Prompt Iteration", status: "locked" }
+      { id: "day-2", title: "Prompt Iteration", status: "locked" },
+      { id: "day-3", title: "Peer Review Prep", status: "completed" }
     ]);
   });
 });

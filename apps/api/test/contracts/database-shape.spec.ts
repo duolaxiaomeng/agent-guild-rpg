@@ -15,6 +15,9 @@ describe("prisma database shape", () => {
     expect(schema).toContain("model AgentSubmission");
     expect(schema).toContain("model ReviewResult");
     expect(schema).toContain("model ContributionLog");
+    expect(schema).toContain("artifacts");
+    expect(schema).toContain("agentEvaluationHints");
+    expect(schema).toContain("submittedAt");
   });
 
   it("seeds a starter course world scenario", () => {
@@ -24,5 +27,6 @@ describe("prisma database shape", () => {
     expect(seed).toContain("three students");
     expect(seed).toContain("one guild");
     expect(seed).toContain("day quests");
+    expect(seed).toContain("session-1");
   });
 });

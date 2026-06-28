@@ -94,10 +94,10 @@ describe("submission flow", () => {
     const response = await request(app.getHttpServer())
       .post("/submissions")
       .send({
-        studentId: "11111111-1111-4111-8111-111111111111",
-        courseWorldId: "22222222-2222-4222-8222-222222222222",
+        studentId: "student-1",
+        courseWorldId: "course-world-1",
         dayId: "day-1",
-        agentSessionId: "33333333-3333-4333-8333-333333333333",
+        agentSessionId: "session-1",
         triggerType: "button",
         conversationSummary:
           "Student compared expected and actual output, then corrected the prompt.",
@@ -116,12 +116,24 @@ describe("submission flow", () => {
 
     expect(response.status).toBe(201);
     expect(response.body.submission).toMatchObject({
-      id: "submission-1",
-      studentId: "11111111-1111-4111-8111-111111111111",
-      dayId: "day-1"
+      id: expect.any(String),
+      studentId: "student-1",
+      courseWorldId: "course-world-1",
+      dayId: "day-1",
+      agentSessionId: "session-1",
+      triggerType: "button",
+      artifacts: [
+        {
+          kind: "doc",
+          label: "README",
+          url: "https://example.com/readme"
+        }
+      ],
+      agentEvaluationHints: ["one correction loop"],
+      timestamp: "2026-06-29T12:00:00.000Z"
     });
     expect(response.body.review).toEqual({
-      submissionId: "submission-1",
+      submissionId: response.body.submission.id,
       suggestedScore: 85,
       finalScore: 85,
       decision: "approve",
@@ -129,25 +141,83 @@ describe("submission flow", () => {
       riskFlags: []
     });
     expect(response.body.queue).toEqual({
-      jobId: "review-submission-1",
+      jobId: `review-${response.body.submission.id}`,
       status: "queued"
+    });
+
+    const persistedSubmission = await prisma.agentSubmission.findUniqueOrThrow({
+      where: { id: response.body.submission.id },
+      include: { reviewResult: true }
+    });
+
+    expect(persistedSubmission.studentId).toBe("student-1");
+    expect(persistedSubmission.courseWorldId).toBe("course-world-1");
+    expect(persistedSubmission.agentSessionId).toBe("session-1");
+    expect(persistedSubmission.submittedAt.toISOString()).toBe(
+      "2026-06-29T12:00:00.000Z"
+    );
+    expect(persistedSubmission.artifacts).toEqual([
+      {
+        kind: "doc",
+        label: "README",
+        url: "https://example.com/readme"
+      }
+    ]);
+    expect(persistedSubmission.agentEvaluationHints).toEqual([
+      "one correction loop"
+    ]);
+    expect(persistedSubmission.reviewResult).toMatchObject({
+      suggestedScore: 85,
+      finalScore: 85,
+      decision: "approve",
+      rationale: "Clear goal, evidence of correction, and visible artifact."
     });
   });
 
   it("records a teacher review decision", async () => {
+    const submissionResponse = await request(app.getHttpServer())
+      .post("/submissions")
+      .send({
+        studentId: "student-1",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        agentSessionId: "session-1",
+        triggerType: "button",
+        conversationSummary:
+          "Student compared expected and actual output, then corrected the prompt.",
+        workSummary: "Student produced a README and screenshot.",
+        artifacts: [
+          {
+            kind: "doc",
+            label: "README",
+            url: "https://example.com/readme"
+          }
+        ],
+        selfReflection: "I learned to tell the agent what success looks like.",
+        agentEvaluationHints: ["one correction loop"],
+        timestamp: "2026-06-29T12:00:00.000Z"
+      });
+
     const response = await request(app.getHttpServer())
       .post("/reviews/decide")
       .send({
-        submissionId: "submission-1",
+        submissionId: submissionResponse.body.submission.id,
         finalScore: 90,
         decision: "adjust"
       });
 
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
-      submissionId: "submission-1",
+      submissionId: submissionResponse.body.submission.id,
       finalScore: 90,
       decision: "adjust"
     });
+
+    const persistedReview = await prisma.reviewResult.findUniqueOrThrow({
+      where: { submissionId: submissionResponse.body.submission.id }
+    });
+
+    expect(persistedReview.finalScore).toBe(90);
+    expect(persistedReview.decision).toBe("adjust");
   });
 });

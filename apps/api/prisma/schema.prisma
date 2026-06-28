@@ -146,21 +146,24 @@ model AgentSession {
 }
 
 model AgentSubmission {
-  id                  String                @id @default(uuid())
-  studentId           String
-  courseWorldId       String
-  dayId               String
-  agentSessionId      String
-  triggerType         SubmissionTriggerType
-  conversationSummary String
-  workSummary         String
-  selfReflection      String
-  createdAt           DateTime              @default(now())
-  student             User                  @relation(fields: [studentId], references: [id])
-  courseWorld         CourseWorld           @relation(fields: [courseWorldId], references: [id])
-  day                 QuestDay              @relation(fields: [dayId], references: [id])
-  agentSession        AgentSession          @relation(fields: [agentSessionId], references: [id])
-  reviewResult        ReviewResult?
+  id                   String                @id @default(uuid())
+  studentId            String
+  courseWorldId        String
+  dayId                String
+  agentSessionId       String
+  triggerType          SubmissionTriggerType
+  conversationSummary  String
+  workSummary          String
+  artifacts            Json
+  selfReflection       String
+  agentEvaluationHints Json
+  submittedAt          DateTime
+  createdAt            DateTime              @default(now())
+  student              User                  @relation(fields: [studentId], references: [id])
+  courseWorld          CourseWorld           @relation(fields: [courseWorldId], references: [id])
+  day                  QuestDay              @relation(fields: [dayId], references: [id])
+  agentSession         AgentSession          @relation(fields: [agentSessionId], references: [id])
+  reviewResult         ReviewResult?
 }
 
 model ReviewResult {

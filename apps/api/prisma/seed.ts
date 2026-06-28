@@ -1,4 +1,5 @@
 import {
+  AgentSessionStatus,
   GuildMembershipRole,
   MembershipStatus,
   PrismaClient,
@@ -80,6 +81,14 @@ export const seedScenario = {
       status: "active"
     }
   ],
+  agentSessions: [
+    {
+      id: "session-1",
+      studentId: "student-1",
+      provider: "claude-code",
+      status: "active"
+    }
+  ],
   questDays: [
     {
       id: "day-1",
@@ -117,6 +126,12 @@ const questStatusMap = {
   open: QuestStatus.open,
   locked: QuestStatus.locked,
   completed: QuestStatus.completed
+} as const;
+
+const agentSessionStatusMap = {
+  active: AgentSessionStatus.active,
+  completed: AgentSessionStatus.completed,
+  failed: AgentSessionStatus.failed
 } as const;
 
 export async function seedDatabase(prisma: PrismaClient) {
@@ -165,6 +180,13 @@ export async function seedDatabase(prisma: PrismaClient) {
       status: questStatusMap[questDay.status]
     }))
   });
+
+  await prisma.agentSession.createMany({
+    data: seedScenario.agentSessions.map((session) => ({
+      ...session,
+      status: agentSessionStatusMap[session.status]
+    }))
+  });
 }
 
 export async function main() {
@@ -183,6 +205,7 @@ export async function main() {
         homesteads: seedScenario.homesteads.length,
         guilds: seedScenario.guilds.length,
         guildMemberships: seedScenario.guildMemberships.length,
+        agentSessions: seedScenario.agentSessions.length,
         questDays: seedScenario.questDays.length
       },
       null,

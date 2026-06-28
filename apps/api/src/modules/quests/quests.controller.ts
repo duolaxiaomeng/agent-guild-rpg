@@ -1,12 +1,22 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Inject } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
 
 @Controller("quests")
 export class QuestsController {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService
+  ) {}
+
   @Get()
-  list() {
-    return [
-      { id: "day-1", title: "First Agent Session", status: "open" },
-      { id: "day-2", title: "Prompt Iteration", status: "locked" }
-    ];
+  async list() {
+    const quests = await this.prisma.questDay.findMany({
+      orderBy: { id: "asc" }
+    });
+
+    return quests.map((quest) => ({
+      id: quest.id,
+      title: quest.title,
+      status: quest.status
+    }));
   }
 }
