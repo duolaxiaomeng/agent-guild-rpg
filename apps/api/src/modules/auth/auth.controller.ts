@@ -1,16 +1,12 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Inject, Post } from "@nestjs/common";
+import { AuthService } from "./auth.service";
 
 @Controller("auth")
 export class AuthController {
+  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
+
   @Post("login")
-  login(@Body() body: { email: string }) {
-    return {
-      token: "dev-token",
-      user: {
-        id: "11111111-1111-4111-8111-111111111111",
-        role: body.email.includes("teacher") ? "teacher" : "student",
-        displayName: body.email.split("@")[0]
-      }
-    };
+  login(@Body() body: { email: string; password: string }) {
+    return this.authService.login(body.email, body.password);
   }
 }

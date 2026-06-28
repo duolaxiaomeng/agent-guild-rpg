@@ -65,6 +65,7 @@ model User {
   id                    String            @id @default(uuid())
   role                  UserRole
   email                 String            @unique
+  passwordHash          String
   displayName           String
   isOnline              Boolean           @default(true)
   createdAt             DateTime          @default(now())
@@ -72,6 +73,7 @@ model User {
   memberships           GuildMembership[]
   ownedGuilds           Guild[]           @relation("GuildOwner")
   agentSessions         AgentSession[]
+  sessions              UserSession[]
   submissions           AgentSubmission[]
   reviewDecisions       ReviewResult[]    @relation("ReviewReviewer")
   contributionLogs      ContributionLog[] @relation("ContributionActor")
@@ -124,6 +126,18 @@ model Room {
   type        RoomType
   name        String
   homestead   Homestead? @relation(fields: [homesteadId], references: [id])
+}
+
+model RoomAccessGrant {
+  id        String   @id @default(cuid())
+  roomId    String
+  granteeId String
+  scope     String
+  status    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([roomId, createdAt])
 }
 
 model QuestDay {
@@ -188,4 +202,15 @@ model ContributionLog {
   createdAt    DateTime         @default(now())
   actor        User             @relation("ContributionActor", fields: [actorId], references: [id])
   targetUser   User             @relation("ContributionTarget", fields: [targetUserId], references: [id])
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }

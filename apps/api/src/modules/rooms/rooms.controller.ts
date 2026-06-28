@@ -1,20 +1,29 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Post, Query } from "@nestjs/common";
+import { RoomsService } from "./rooms.service";
 
 type CreateAccessGrantBody = {
   roomId: string;
   granteeId: string;
+  scope?: string;
+  expiresInHours?: number;
 };
 
 @Controller("rooms")
 export class RoomsController {
+  constructor(@Inject(RoomsService) private readonly roomsService: RoomsService) {}
+
   @Post("access-grants")
   createGrant(@Body() body: CreateAccessGrantBody) {
-    return {
-      id: "grant-1",
-      roomId: body.roomId,
-      granteeId: body.granteeId,
-      status: "approved",
-      scope: "chat_summary"
-    };
+    return this.roomsService.createGrant(
+      body.roomId,
+      body.granteeId,
+      body.scope ?? "chat_summary",
+      body.expiresInHours ?? 24
+    );
+  }
+
+  @Get("access-grants")
+  listGrants(@Query("roomId") roomId: string) {
+    return this.roomsService.listGrants(roomId);
   }
 }

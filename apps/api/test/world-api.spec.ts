@@ -34,23 +34,29 @@ describe("world api", () => {
   it("returns a login payload for teacher and student roles", async () => {
     const teacherResponse = await request(app.getHttpServer())
       .post("/auth/login")
-      .send({ email: "teacher@example.com" });
+      .send({
+        email: "teacher@academy.test",
+        password: "teacher-pass-123"
+      });
 
     const studentResponse = await request(app.getHttpServer())
       .post("/auth/login")
-      .send({ email: "lin@example.com" });
+      .send({
+        email: "lin@academy.test",
+        password: "student-pass-123"
+      });
 
     expect(teacherResponse.status).toBe(201);
     expect(teacherResponse.body).toMatchObject({
       token: expect.any(String),
       user: {
         role: "teacher",
-        displayName: "teacher"
+        displayName: "Teacher Lin"
       }
     });
     expect(studentResponse.status).toBe(201);
     expect(studentResponse.body.user.role).toBe("student");
-    expect(studentResponse.body.user.displayName).toBe("lin");
+    expect(studentResponse.body.user.displayName).toBe("Lin");
   });
 
   it("returns the world shell payload", async () => {

@@ -19,6 +19,7 @@ export const seedScenario = {
       id: "teacher-1",
       role: "teacher",
       email: "teacher@academy.test",
+      passwordHash: "teacher-pass-123",
       displayName: "Teacher Lin",
       isOnline: false
     },
@@ -26,6 +27,7 @@ export const seedScenario = {
       id: "student-1",
       role: "student",
       email: "lin@academy.test",
+      passwordHash: "student-pass-123",
       displayName: "Lin",
       isOnline: true
     },
@@ -33,6 +35,7 @@ export const seedScenario = {
       id: "student-2",
       role: "student",
       email: "mo@academy.test",
+      passwordHash: "student-pass-456",
       displayName: "Mo",
       isOnline: false
     },
@@ -40,6 +43,7 @@ export const seedScenario = {
       id: "student-3",
       role: "student",
       email: "kai@academy.test",
+      passwordHash: "student-pass-789",
       displayName: "Kai",
       isOnline: true
     }
@@ -135,10 +139,12 @@ const agentSessionStatusMap = {
 } as const;
 
 export async function seedDatabase(prisma: PrismaClient) {
+  await prisma.userSession.deleteMany();
   await prisma.reviewResult.deleteMany();
   await prisma.agentSubmission.deleteMany();
   await prisma.agentSession.deleteMany();
   await prisma.contributionLog.deleteMany();
+  await prisma.roomAccessGrant.deleteMany();
   await prisma.guildMembership.deleteMany();
   await prisma.guild.deleteMany();
   await prisma.room.deleteMany();
