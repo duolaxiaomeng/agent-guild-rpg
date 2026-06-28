@@ -47,6 +47,25 @@ export type ReviewQueuePayload = {
   items: ReviewQueueItem[];
 };
 
+export type ChatOverviewPayload = {
+  studentId: string;
+  studentName: string;
+  agentLabel: string;
+  sessionStatus: "active" | "completed" | "failed";
+  sessionSummary: string;
+  latestSubmission: {
+    id: string;
+    statusLabel: string;
+    submittedAt: string;
+    dayLabel: string;
+  } | null;
+  collaborationGuests: Array<{
+    studentId: string;
+    studentName: string;
+    contributionLabel: string;
+  }>;
+};
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     cache: "no-store"
@@ -69,4 +88,8 @@ export async function getQuestList() {
 
 export async function getReviewQueue() {
   return fetchJson<ReviewQueuePayload>("/reviews");
+}
+
+export async function getChatOverview(studentId: string) {
+  return fetchJson<ChatOverviewPayload>(`/chat?studentId=${studentId}`);
 }

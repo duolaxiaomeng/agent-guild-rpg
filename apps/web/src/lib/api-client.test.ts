@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getChatOverview,
   getGuildList,
   getQuestList,
   getReviewQueue,
@@ -93,5 +94,40 @@ describe("api client", () => {
     expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews", {
       cache: "no-store"
     });
+  });
+
+  it("requests the chat overview without cache", async () => {
+    const mockPayload = {
+      studentId: "student-1",
+      studentName: "Lin",
+      agentLabel: "Claude Code",
+      sessionStatus: "active",
+      sessionSummary: "最近一次对话聚焦 README 打磨与截图整理。",
+      latestSubmission: {
+        id: "submission-1",
+        statusLabel: "待老师审核",
+        submittedAt: "2026-06-29T10:00:00.000Z",
+        dayLabel: "Day 1"
+      },
+      collaborationGuests: [
+        {
+          studentId: "student-2",
+          studentName: "Mo",
+          contributionLabel: "协作贡献 4"
+        }
+      ]
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(getChatOverview("student-1")).resolves.toEqual(mockPayload);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/chat?studentId=student-1",
+      {
+        cache: "no-store"
+      }
+    );
   });
 });

@@ -1,41 +1,95 @@
 import { ChatRoom } from "../../components/chat/chat-room";
 import { DayPanel } from "../../components/quests/day-panel";
+import {
+  getChatOverview,
+  getQuestList,
+  type ChatOverviewPayload,
+  type QuestSummary
+} from "../../lib/api-client";
 
-const dayItems = [
-  {
-    id: "day-1",
-    label: "Day 1",
-    title: "首次 Agent 提交",
-    status: "completed" as const,
-    reward: "解锁工会申请"
-  },
-  {
-    id: "day-2",
-    label: "Day 2",
-    title: "提示词迭代",
-    status: "current" as const,
-    reward: "开放互测任务"
-  },
-  {
-    id: "day-3",
-    label: "Day 3",
-    title: "协作拆解",
-    status: "locked" as const,
-    reward: "解锁工会任务板"
+function toDayLabel(dayId: string) {
+  return `Day ${dayId.replace("day-", "")}`;
+}
+
+function toDayStatus(status: QuestSummary["status"]) {
+  if (status === "completed") {
+    return "completed" as const;
   }
-];
 
-export default function ChatPage() {
+  if (status === "open") {
+    return "current" as const;
+  }
+
+  return "locked" as const;
+}
+
+function toRewardText(status: QuestSummary["status"]) {
+  if (status === "completed") {
+    return "已达成，可进入回顾";
+  }
+
+  if (status === "open") {
+    return "等待学生完成当日任务";
+  }
+
+  return "等待上一关完成后解锁";
+}
+
+function toSessionStatusLabel(status: ChatOverviewPayload["sessionStatus"]) {
+  if (status === "active") {
+    return "进行中";
+  }
+
+  if (status === "completed") {
+    return "已完成";
+  }
+
+  return "异常结束";
+}
+
+function toSubmissionMeta(
+  latestSubmission: ChatOverviewPayload["latestSubmission"]
+) {
+  if (!latestSubmission) {
+    return undefined;
+  }
+
+  return `${latestSubmission.dayLabel} · ${latestSubmission.submittedAt
+    .slice(0, 16)
+    .replace("T", " ")}`;
+}
+
+export default async function ChatPage() {
+  const [chatOverview, quests] = await Promise.all([
+    getChatOverview("student-1"),
+    getQuestList()
+  ]);
+  const currentQuest = quests.find((quest) => quest.status === "open") ?? quests[0];
+  const dayItems = quests.map((quest) => ({
+    id: quest.id,
+    label: toDayLabel(quest.id),
+    title: quest.title,
+    status: toDayStatus(quest.status),
+    reward: toRewardText(quest.status)
+  }));
+
   return (
     <main>
       <ChatRoom
-        studentName="Lin"
-        agentLabel="Claude Code"
-        sessionSummary="已完成 README 更新、截图整理和提示词修正。"
-        latestSubmissionStatus="待老师审核"
-        collaborationGuests={["Mia", "Noah"]}
+        studentName={chatOverview.studentName}
+        agentLabel={chatOverview.agentLabel}
+        sessionStatusLabel={toSessionStatusLabel(chatOverview.sessionStatus)}
+        sessionSummary={chatOverview.sessionSummary}
+        latestSubmissionStatus={
+          chatOverview.latestSubmission?.statusLabel ?? "今日未提交"
+        }
+        latestSubmissionMeta={toSubmissionMeta(chatOverview.latestSubmission)}
+        collaborationGuests={chatOverview.collaborationGuests.map((guest) => ({
+          studentName: guest.studentName,
+          contributionLabel: guest.contributionLabel
+        }))}
       />
-      <DayPanel currentDayId="day-2" days={dayItems} />
+      <DayPanel currentDayId={currentQuest?.id ?? ""} days={dayItems} />
     </main>
   );
 }

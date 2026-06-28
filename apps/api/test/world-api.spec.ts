@@ -1,6 +1,11 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { PrismaClient, QuestStatus } from "@prisma/client";
+import {
+  ContributionKind,
+  PrismaClient,
+  QuestStatus,
+  SubmissionTriggerType
+} from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -94,5 +99,88 @@ describe("world api", () => {
       { id: "day-2", title: "Prompt Iteration", status: "locked" },
       { id: "day-3", title: "Peer Review Prep", status: "completed" }
     ]);
+  });
+
+  it("returns a student chat overview read model", async () => {
+    await prisma.agentSubmission.create({
+      data: {
+        id: "submission-1",
+        studentId: "student-1",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        agentSessionId: "session-1",
+        triggerType: SubmissionTriggerType.button,
+        conversationSummary: "最近一次对话聚焦 README 打磨与截图整理。",
+        workSummary: "README、截图与提示词修正已提交。",
+        artifacts: [
+          {
+            kind: "doc",
+            label: "README",
+            url: "https://example.com/readme"
+          }
+        ],
+        selfReflection: "我知道该怎么告诉 Agent 成功标准。",
+        agentEvaluationHints: ["one correction loop"],
+        submittedAt: new Date("2026-06-29T10:00:00.000Z")
+      }
+    });
+
+    await prisma.reviewResult.create({
+      data: {
+        submissionId: "submission-1",
+        suggestedScore: 85,
+        rationale: "Clear goal, evidence of correction, and visible artifact."
+      }
+    });
+
+    await prisma.contributionLog.createMany({
+      data: [
+        {
+          id: "contribution-1",
+          actorId: "student-2",
+          targetUserId: "student-1",
+          kind: ContributionKind.collaboration,
+          points: 4
+        },
+        {
+          id: "contribution-2",
+          actorId: "student-3",
+          targetUserId: "student-1",
+          kind: ContributionKind.peer_review,
+          points: 2
+        }
+      ]
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/chat")
+      .query({ studentId: "student-1" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      studentId: "student-1",
+      studentName: "Lin",
+      agentLabel: "Claude Code",
+      sessionStatus: "active",
+      sessionSummary: "最近一次对话聚焦 README 打磨与截图整理。",
+      latestSubmission: {
+        id: "submission-1",
+        statusLabel: "待老师审核",
+        submittedAt: "2026-06-29T10:00:00.000Z",
+        dayLabel: "Day 1"
+      },
+      collaborationGuests: [
+        {
+          studentId: "student-2",
+          studentName: "Mo",
+          contributionLabel: "协作贡献 4"
+        },
+        {
+          studentId: "student-3",
+          studentName: "Kai",
+          contributionLabel: "协作贡献 2"
+        }
+      ]
+    });
   });
 });

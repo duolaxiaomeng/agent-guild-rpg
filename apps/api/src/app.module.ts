@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { HealthController } from "./health.controller";
 import { AuthController } from "./modules/auth/auth.controller";
+import { ChatController } from "./modules/chat/chat.controller";
 import { GuildsController } from "./modules/guilds/guilds.controller";
 import { ReviewQueueService } from "./modules/queue/review.queue";
 import { QuestsController } from "./modules/quests/quests.controller";
@@ -16,6 +17,7 @@ import { PrismaModule } from "./prisma/prisma.module";
   controllers: [
     HealthController,
     AuthController,
+    ChatController,
     WorldController,
     QuestsController,
     GuildsController,
