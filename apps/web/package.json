@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "dev:e2e": "next dev --port 3100",
-    "build": "node -e \"require('node:fs').rmSync('.next', { recursive: true, force: true })\" && next build",
+    "build": "next build",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },

@@ -293,14 +293,14 @@
 
 这样能同时得到真实的 Redis/BullMQ 接入、稳定可解释的 TDD 红绿循环，以及不被外部基础设施噪音污染的教学主流程测试。
 
-### 24. Next.js 构建先清理 `.next`，再把根命令当成稳定验收口
+### 24. 根构建失败但单应用构建成功时，先怀疑 workspace 并行竞态
 
-当 monorepo 里的 Web 应用使用 Next.js App Router，且根命令会递归触发 `apps/web build` 时，不要默认相信已有 `.next` 目录永远干净；应先在 `build` 脚本里显式清理 `.next`，再执行 `next build`。
+当 monorepo 里的 `pnpm build` 在仓库根失败，但 `pnpm --filter web build` 单独执行却稳定成功时，不要先假设是页面源码坏了；优先怀疑 workspace 递归并行构建触发了 Next.js 的构建竞态。
 
-- `.next/types`、`.next/cache/.tsbuildinfo`、`.next/export` 都属于可再生构建产物，一旦残留旧页面路径、过期类型文件或未清空目录，就可能把本应稳定的构建变成偶发失败
-- 如果报错指向 `apps/web/.next/types/app/... not found`、`ENOTEMPTY` 或其他只发生在已有 `.next` 状态下的问题，优先怀疑脏产物，而不是先改页面源码或 Next 类型配置
-- 最小修复优先落在 `apps/web/package.json` 的 `build` 入口，例如先删除 `.next` 再跑 `next build`，让单应用构建与根 `pnpm build` 共用同一条自清理路径
-- 验收不要只跑一次干净构建；应先人为制造脏 `.next` 状态，再分别验证 `pnpm --filter web build` 与仓库根 `pnpm build` 都能转绿，证明修复覆盖了真实失效场景
-- 这类修复优先保留 Next 官方类型生成链路，不要为了躲避错误而贸然移除 `.next/types` 的 TypeScript 输入，避免把缓存问题误修成类型能力回退
+- 先分别验证两条命令：仓库根 `pnpm build` 与单应用 `pnpm --filter web build`；如果只有根命令失败，就说明问题更可能在工作区调度层，而不是 `app/page.tsx` 本身
+- 遇到 `/_document` not found、`.next/types/... not found` 这类只在递归构建里出现、单应用构建却消失的报错时，先测试 `pnpm -r --workspace-concurrency=1 build` 是否转绿
+- 如果顺序构建能稳定通过，优先把根脚本改成显式顺序构建，而不是急着改页面源码、删类型能力或在子应用里堆额外清理脚本
+- `.next` 仍然是可再生产物，但“先清 `.next`”不是总能命中根因；若清理后又冒出 `/_document` 之类 Next 内部页面异常，应回到“并行调度是否触发竞态”这条主线排查
+- 验收口径以仓库根命令为准：修复后至少同时验证 `pnpm test`、仓库根 `pnpm build` 和 `pnpm test:e2e`，确保不是“单个包绿、整体仍不稳定”
 
-这样能把 Next.js 的可再生产物与源码真相分离，减少 monorepo 根命令因 Web 历史构建残留而出现的偶发红灯。
+这样能把“源码错误”和“monorepo 构建调度问题”分开处理，减少把 Next.js 递归构建竞态误判成页面实现缺陷。

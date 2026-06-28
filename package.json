@@ -8,7 +8,7 @@
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter web test:e2e",
     "lint": "pnpm -r lint",
-    "build": "pnpm -r build"
+    "build": "pnpm -r --workspace-concurrency=1 build"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
