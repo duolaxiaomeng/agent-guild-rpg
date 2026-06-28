@@ -1,6 +1,11 @@
 import { DayPanel } from "../../components/quests/day-panel";
 import { ReviewQueue } from "../../components/teacher/review-queue";
-import { getQuestList, type QuestSummary } from "../../lib/api-client";
+import {
+  getQuestList,
+  getReviewQueue,
+  type QuestSummary,
+  type ReviewQueueItem
+} from "../../lib/api-client";
 
 function toDayLabel(dayId: string) {
   return `Day ${dayId.replace("day-", "")}`;
@@ -30,8 +35,24 @@ function toRewardText(status: QuestSummary["status"]) {
   return "等待上一关完成后解锁";
 }
 
+function toDecisionLabel(decision: ReviewQueueItem["decision"]) {
+  if (decision === "approve") {
+    return "已通过";
+  }
+
+  if (decision === "adjust") {
+    return "需要调整";
+  }
+
+  return "已退回";
+}
+
+function toSubmittedAtLabel(submittedAt: string) {
+  return submittedAt.slice(0, 16).replace("T", " ");
+}
+
 export default async function TeacherPage() {
-  const quests = await getQuestList();
+  const [quests, reviewQueue] = await Promise.all([getQuestList(), getReviewQueue()]);
   const currentQuest = quests.find((quest) => quest.status === "open") ?? quests[0];
 
   const dayItems = quests.map((quest) => ({
@@ -45,22 +66,16 @@ export default async function TeacherPage() {
   return (
     <main>
       <ReviewQueue
-        summary={{
-          currentDayLabel: currentQuest ? toDayLabel(currentQuest.id) : "暂无任务",
-          completedCount: quests.filter((quest) => quest.status === "completed").length,
-          activeCount: quests.filter((quest) => quest.status === "open").length,
-          lockedCount: quests.filter((quest) => quest.status === "locked").length
-        }}
-        items={quests.map((quest) => ({
-          id: quest.id,
-          label: toDayLabel(quest.id),
-          title: quest.title,
-          statusLabel:
-            quest.status === "completed"
-              ? "已完成"
-              : quest.status === "open"
-                ? "进行中"
-                : "未解锁"
+        summary={reviewQueue.summary}
+        items={reviewQueue.items.map((item) => ({
+          submissionId: item.submissionId,
+          studentName: item.studentName,
+          guildName: item.guildName,
+          dayLabel: item.dayLabel,
+          decisionLabel: toDecisionLabel(item.decision),
+          finalScore: item.finalScore,
+          submittedAtLabel: toSubmittedAtLabel(item.submittedAt),
+          rationale: item.rationale
         }))}
       />
       <DayPanel currentDayId={currentQuest?.id ?? ""} days={dayItems} />

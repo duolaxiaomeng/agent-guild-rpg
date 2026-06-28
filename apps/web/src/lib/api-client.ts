@@ -24,6 +24,29 @@ export type QuestSummary = {
   status: "open" | "locked" | "completed";
 };
 
+export type ReviewQueueSummary = {
+  pendingCount: number;
+  reviewedToday: number;
+  flaggedCount: number;
+};
+
+export type ReviewQueueItem = {
+  submissionId: string;
+  studentName: string;
+  guildName: string;
+  suggestedScore: number;
+  finalScore: number;
+  decision: "approve" | "adjust" | "reject";
+  rationale: string;
+  dayLabel: string;
+  submittedAt: string;
+};
+
+export type ReviewQueuePayload = {
+  summary: ReviewQueueSummary;
+  items: ReviewQueueItem[];
+};
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     cache: "no-store"
@@ -42,4 +65,8 @@ export async function getGuildList() {
 
 export async function getQuestList() {
   return fetchJson<QuestSummary[]>("/quests");
+}
+
+export async function getReviewQueue() {
+  return fetchJson<ReviewQueuePayload>("/reviews");
 }

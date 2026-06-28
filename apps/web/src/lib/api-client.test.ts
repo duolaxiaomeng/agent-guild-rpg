@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getGuildList, getQuestList, getWorldPayload } from "./api-client";
+import {
+  getGuildList,
+  getQuestList,
+  getReviewQueue,
+  getWorldPayload
+} from "./api-client";
 
 describe("api client", () => {
   afterEach(() => {
@@ -54,6 +59,38 @@ describe("api client", () => {
 
     await expect(getQuestList()).resolves.toEqual(mockPayload);
     expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/quests", {
+      cache: "no-store"
+    });
+  });
+
+  it("requests the teacher review queue without cache", async () => {
+    const mockPayload = {
+      summary: {
+        pendingCount: 1,
+        reviewedToday: 2,
+        flaggedCount: 1
+      },
+      items: [
+        {
+          submissionId: "submission-1",
+          studentName: "Lin",
+          guildName: "Morning Forge",
+          suggestedScore: 85,
+          finalScore: 90,
+          decision: "adjust",
+          rationale: "Need tighter artifact evidence before final approval.",
+          dayLabel: "Day 2",
+          submittedAt: "2026-06-29T09:00:00.000Z"
+        }
+      ]
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(getReviewQueue()).resolves.toEqual(mockPayload);
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews", {
       cache: "no-store"
     });
   });
