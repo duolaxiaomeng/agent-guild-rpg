@@ -1,11 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { createSubmission } from "../../lib/api-client";
+import {
+  createRoomAccessGrant,
+  createSubmission,
+  revokeRoomAccessGrant,
+  type RoomAccessGrant
+} from "../../lib/api-client";
 
 type ChatRoomProps = {
   studentName: string;
   studentId?: string;
+  roomId?: string;
   courseWorldId?: string;
   dayId?: string;
   agentSessionId?: string;
@@ -14,6 +20,7 @@ type ChatRoomProps = {
   sessionSummary: string;
   latestSubmissionStatus: string;
   latestSubmissionMeta?: string;
+  accessGrants: RoomAccessGrant[];
   collaborationGuests: Array<{
     studentName: string;
     contributionLabel: string;
@@ -23,6 +30,7 @@ type ChatRoomProps = {
 export function ChatRoom({
   studentName,
   studentId = "student-1",
+  roomId = `room-chat-${studentId}`,
   courseWorldId = "course-world-1",
   dayId = "day-1",
   agentSessionId = "session-1",
@@ -31,6 +39,7 @@ export function ChatRoom({
   sessionSummary,
   latestSubmissionStatus,
   latestSubmissionMeta,
+  accessGrants,
   collaborationGuests
 }: ChatRoomProps) {
   const collaborationLabel =
@@ -49,6 +58,10 @@ export function ChatRoom({
   const [currentSubmissionMeta, setCurrentSubmissionMeta] = useState(
     latestSubmissionMeta
   );
+  const [grantStudentId, setGrantStudentId] = useState("");
+  const [grantFeedback, setGrantFeedback] = useState<string | null>(null);
+  const [isGrantMutating, setIsGrantMutating] = useState(false);
+  const [currentAccessGrants, setCurrentAccessGrants] = useState(accessGrants);
 
   async function handleSubmit() {
     const timestamp = new Date().toISOString();
@@ -88,6 +101,53 @@ export function ChatRoom({
     }
   }
 
+  async function handleCreateGrant() {
+    const nextGranteeId = grantStudentId.trim();
+
+    if (!nextGranteeId) {
+      setGrantFeedback("请输入授权学生 ID。");
+      return;
+    }
+
+    setIsGrantMutating(true);
+    setGrantFeedback("正在创建授权...");
+
+    try {
+      const createdGrant = await createRoomAccessGrant({
+        roomId,
+        granteeId: nextGranteeId,
+        scope: "chat_summary",
+        expiresInHours: 24
+      });
+
+      setCurrentAccessGrants((existingGrants) => [createdGrant, ...existingGrants]);
+      setGrantStudentId("");
+      setGrantFeedback("授权已创建。");
+    } catch {
+      setGrantFeedback("授权创建失败，请稍后重试。");
+    } finally {
+      setIsGrantMutating(false);
+    }
+  }
+
+  async function handleRevokeGrant(grantId: string) {
+    setIsGrantMutating(true);
+    setGrantFeedback("正在撤销授权...");
+
+    try {
+      const revokedGrant = await revokeRoomAccessGrant(grantId);
+
+      setCurrentAccessGrants((existingGrants) =>
+        existingGrants.map((grant) => (grant.id === grantId ? revokedGrant : grant))
+      );
+      setGrantFeedback("授权已撤销。");
+    } catch {
+      setGrantFeedback("授权撤销失败，请稍后重试。");
+    } finally {
+      setIsGrantMutating(false);
+    }
+  }
+
   return (
     <section>
       <h1>个人聊天室</h1>
@@ -109,6 +169,44 @@ export function ChatRoom({
       </p>
       {currentSubmissionMeta ? <p>{currentSubmissionMeta}</p> : null}
       <p>已授权协作者：{collaborationLabel}</p>
+      <section>
+        <h2>授权列表</h2>
+        <label>
+          授权学生 ID
+          <input
+            value={grantStudentId}
+            onChange={(event) => setGrantStudentId(event.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => void handleCreateGrant()}
+          disabled={isGrantMutating}
+        >
+          创建授权
+        </button>
+        {grantFeedback ? <p>{grantFeedback}</p> : null}
+        {currentAccessGrants.length > 0 ? (
+          <ul>
+            {currentAccessGrants.map((grant) => (
+              <li key={grant.id}>
+                <span>{toGrantLabel(grant)}</span>
+                {grant.status === "approved" ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleRevokeGrant(grant.id)}
+                    disabled={isGrantMutating}
+                  >
+                    {`撤销 ${grant.granteeName}`}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>暂无授权记录。</p>
+        )}
+      </section>
     </section>
   );
 }
@@ -119,4 +217,12 @@ function toDayLabel(dayId: string) {
 
 function toTimeLabel(timestamp: string) {
   return timestamp.slice(0, 16).replace("T", " ");
+}
+
+function toGrantStatusLabel(status: RoomAccessGrant["status"]) {
+  return status === "revoked" ? "已撤销" : "生效中";
+}
+
+function toGrantLabel(grant: RoomAccessGrant) {
+  return `${grant.granteeName} · ${grant.scope} · ${toGrantStatusLabel(grant.status)}`;
 }

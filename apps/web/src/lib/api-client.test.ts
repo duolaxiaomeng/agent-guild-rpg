@@ -1,15 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createRoomAccessGrant,
   createSubmission,
   decideReview,
+  getRoomAccessGrants,
+  getRoomAccessGrantsSafe,
   getChatOverviewSafe,
   getChatOverview,
+  getCurrentSession,
   getGuildListSafe,
   getGuildList,
   getQuestListSafe,
   getQuestList,
+  login,
   getReviewQueueSafe,
   getReviewQueue,
+  revokeRoomAccessGrant,
   getWorldPayloadSafe,
   getWorldPayload
 } from "./api-client";
@@ -143,6 +149,95 @@ describe("api client", () => {
     );
   });
 
+  it("posts login credentials to the auth api", async () => {
+    const mockPayload = {
+      token: "session_teacher-1",
+      user: {
+        id: "teacher-1",
+        role: "teacher",
+        displayName: "Teacher Lin"
+      }
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(
+      login({
+        email: "teacher@academy.test",
+        password: "teacher-pass-123"
+      })
+    ).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email: "teacher@academy.test",
+        password: "teacher-pass-123"
+      })
+    });
+  });
+
+  it("requests the current session with the bearer token", async () => {
+    const mockPayload = {
+      token: "session_student-2",
+      user: {
+        id: "student-2",
+        role: "student",
+        displayName: "Mo"
+      }
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(getCurrentSession("session_student-2")).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/auth/session", {
+      cache: "no-store",
+      headers: {
+        Authorization: "Bearer session_student-2"
+      }
+    });
+  });
+
+  it("requests the room access grant list without cache", async () => {
+    const mockPayload = [
+      {
+        id: "grant-1",
+        roomId: "room-chat-student-1",
+        granteeId: "student-2",
+        granteeName: "Mo",
+        scope: "chat_summary",
+        status: "approved",
+        createdAt: "2026-06-29T10:00:00.000Z",
+        expiresAt: "2026-06-30T10:00:00.000Z"
+      }
+    ];
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(getRoomAccessGrants("room-chat-student-1")).resolves.toEqual(
+      mockPayload
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/rooms/access-grants?roomId=room-chat-student-1",
+      {
+        cache: "no-store"
+      }
+    );
+  });
+
   it("posts a chat submission to the write api", async () => {
     const mockPayload = {
       submission: {
@@ -239,6 +334,80 @@ describe("api client", () => {
     });
   });
 
+  it("posts a room access grant creation request to the write api", async () => {
+    const mockPayload = {
+      id: "grant-1",
+      roomId: "room-chat-student-1",
+      granteeId: "student-2",
+      granteeName: "Mo",
+      scope: "chat_summary",
+      status: "approved",
+      createdAt: "2026-06-29T10:00:00.000Z",
+      expiresAt: "2026-06-30T10:00:00.000Z"
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(
+      createRoomAccessGrant({
+        roomId: "room-chat-student-1",
+        granteeId: "student-2",
+        scope: "chat_summary",
+        expiresInHours: 24
+      })
+    ).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/rooms/access-grants",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          roomId: "room-chat-student-1",
+          granteeId: "student-2",
+          scope: "chat_summary",
+          expiresInHours: 24
+        })
+      }
+    );
+  });
+
+  it("posts a room access grant revoke request to the write api", async () => {
+    const mockPayload = {
+      id: "grant-1",
+      roomId: "room-chat-student-1",
+      granteeId: "student-2",
+      granteeName: "Mo",
+      scope: "chat_summary",
+      status: "revoked",
+      createdAt: "2026-06-29T10:00:00.000Z",
+      expiresAt: "2026-06-30T10:00:00.000Z"
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(revokeRoomAccessGrant("grant-1")).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/rooms/access-grants/grant-1/revoke",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      }
+    );
+  });
+
   it("returns fallback data when the world payload api is unreachable", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
 
@@ -295,6 +464,15 @@ describe("api client", () => {
         latestSubmission: null,
         collaborationGuests: []
       }
+    });
+  });
+
+  it("returns fallback data when the room access api is unreachable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getRoomAccessGrantsSafe("room-chat-student-1")).resolves.toMatchObject({
+      degraded: true,
+      data: []
     });
   });
 });

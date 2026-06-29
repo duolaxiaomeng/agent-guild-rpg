@@ -5,6 +5,22 @@ export type ApiPayloadState<T> = {
   degraded: boolean;
 };
 
+export type AuthUser = {
+  id: string;
+  role: "teacher" | "student";
+  displayName: string;
+};
+
+export type AuthSession = {
+  token: string;
+  user: AuthUser;
+};
+
+export type LoginPayload = {
+  email: string;
+  password: string;
+};
+
 export type WorldPayload = {
   currentDay: number;
   location: string;
@@ -103,6 +119,24 @@ export type ChatOverviewPayload = {
   }>;
 };
 
+export type RoomAccessGrant = {
+  id: string;
+  roomId: string;
+  granteeId: string;
+  granteeName: string;
+  scope: string;
+  status: "approved" | "revoked";
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type CreateRoomAccessGrantPayload = {
+  roomId: string;
+  granteeId: string;
+  scope?: string;
+  expiresInHours?: number;
+};
+
 const EMPTY_WORLD_PAYLOAD: WorldPayload = {
   currentDay: 0,
   location: "offline",
@@ -112,6 +146,7 @@ const EMPTY_WORLD_PAYLOAD: WorldPayload = {
 const EMPTY_GUILD_LIST: GuildSummary[] = [];
 
 const EMPTY_QUEST_LIST: QuestSummary[] = [];
+const EMPTY_ROOM_ACCESS_GRANTS: RoomAccessGrant[] = [];
 
 const EMPTY_REVIEW_QUEUE: ReviewQueuePayload = {
   summary: {
@@ -135,6 +170,22 @@ const EMPTY_CHAT_OVERVIEW = (studentId: string): ChatOverviewPayload => ({
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${path}: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function fetchJsonWithHeaders<T>(
+  path: string,
+  headers: HeadersInit
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    cache: "no-store",
+    headers
   });
 
   if (!response.ok) {
@@ -186,6 +237,16 @@ export async function getWorldPayload() {
   return fetchJson<WorldPayload>("/world");
 }
 
+export async function login(payload: LoginPayload) {
+  return postJson<AuthSession, LoginPayload>("/auth/login", payload);
+}
+
+export async function getCurrentSession(token: string) {
+  return fetchJsonWithHeaders<AuthSession>("/auth/session", {
+    Authorization: `Bearer ${token}`
+  });
+}
+
 export async function getWorldPayloadSafe() {
   return fetchJsonSafe("/world", EMPTY_WORLD_PAYLOAD);
 }
@@ -222,10 +283,35 @@ export async function getChatOverviewSafe(studentId: string) {
   return fetchJsonSafe(`/chat?studentId=${studentId}`, EMPTY_CHAT_OVERVIEW(studentId));
 }
 
+export async function getRoomAccessGrants(roomId: string) {
+  return fetchJson<RoomAccessGrant[]>(`/rooms/access-grants?roomId=${roomId}`);
+}
+
+export async function getRoomAccessGrantsSafe(roomId: string) {
+  return fetchJsonSafe(
+    `/rooms/access-grants?roomId=${roomId}`,
+    EMPTY_ROOM_ACCESS_GRANTS
+  );
+}
+
 export async function createSubmission(payload: CreateSubmissionPayload) {
   return postJson<CreateSubmissionResponse, CreateSubmissionPayload>(
     "/submissions",
     payload
+  );
+}
+
+export async function createRoomAccessGrant(payload: CreateRoomAccessGrantPayload) {
+  return postJson<RoomAccessGrant, CreateRoomAccessGrantPayload>(
+    "/rooms/access-grants",
+    payload
+  );
+}
+
+export async function revokeRoomAccessGrant(grantId: string) {
+  return postJson<RoomAccessGrant, Record<string, never>>(
+    `/rooms/access-grants/${grantId}/revoke`,
+    {}
   );
 }
 

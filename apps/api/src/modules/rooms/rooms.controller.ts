@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query } from "@nestjs/common";
 import { RoomsService } from "./rooms.service";
 
 type CreateAccessGrantBody = {
@@ -25,5 +25,10 @@ export class RoomsController {
   @Get("access-grants")
   listGrants(@Query("roomId") roomId: string) {
     return this.roomsService.listGrants(roomId);
+  }
+
+  @Post("access-grants/:grantId/revoke")
+  revokeGrant(@Param("grantId") grantId: string) {
+    return this.roomsService.revokeGrant(grantId);
   }
 }
