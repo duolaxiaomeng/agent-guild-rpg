@@ -12,3 +12,8 @@ export const authUserSchema = z.object({
   role: userRoleSchema,
   displayName: z.string().min(1)
 });
+
+export const authSessionSchema = z.object({
+  token: z.string().min(1),
+  user: authUserSchema
+});

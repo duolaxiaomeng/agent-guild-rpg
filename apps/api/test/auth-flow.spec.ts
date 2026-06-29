@@ -41,4 +41,25 @@ describe("auth flow", () => {
     expect(response.body.user.role).toBe("teacher");
     expect(response.body.token).toMatch(/^session_/);
   });
+
+  it("reads the current session for a logged-in teacher", async () => {
+    const loginResponse = await request(app.getHttpServer()).post("/auth/login").send({
+      email: "teacher@academy.test",
+      password: "teacher-pass-123"
+    });
+
+    const sessionResponse = await request(app.getHttpServer())
+      .get("/auth/session")
+      .set("Authorization", `Bearer ${loginResponse.body.token}`);
+
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionResponse.body).toMatchObject({
+      token: loginResponse.body.token,
+      user: {
+        id: "teacher-1",
+        role: "teacher",
+        displayName: "Teacher Lin"
+      }
+    });
+  });
 });

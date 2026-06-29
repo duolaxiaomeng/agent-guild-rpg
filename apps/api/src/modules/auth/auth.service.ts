@@ -31,4 +31,30 @@ export class AuthService {
       }
     };
   }
+
+  async getSession(token: string) {
+    if (!token) {
+      throw new UnauthorizedException("Invalid session");
+    }
+
+    const session = await this.prisma.userSession.findUnique({
+      where: { token },
+      include: {
+        user: true
+      }
+    });
+
+    if (!session || session.expiresAt <= new Date()) {
+      throw new UnauthorizedException("Invalid session");
+    }
+
+    return {
+      token: session.token,
+      user: {
+        id: session.user.id,
+        role: session.user.role,
+        displayName: session.user.displayName
+      }
+    };
+  }
 }

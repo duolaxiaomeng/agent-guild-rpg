@@ -1,4 +1,5 @@
 import { DayPanel } from "../../components/quests/day-panel";
+import { SessionBanner } from "../../components/auth/session-banner";
 import { ReviewQueue } from "../../components/teacher/review-queue";
 import {
   getQuestListSafe,
@@ -70,6 +71,7 @@ export default async function TeacherPage() {
 
   return (
     <main>
+      <SessionBanner />
       {questsDegraded || reviewQueueDegraded ? (
         <p>评审与关卡数据暂不可达，当前显示安全空态。</p>
       ) : null}
