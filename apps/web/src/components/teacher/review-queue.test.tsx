@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { decideReview } from "../../lib/api-client";
 import { ReviewQueue } from "./review-queue";
@@ -63,7 +63,7 @@ describe("ReviewQueue", () => {
             studentName: "Mo",
             guildName: "Morning Forge",
             dayLabel: "Day 2",
-            decisionLabel: "待老师裁定",
+            decisionLabel: "已通过",
             finalScore: 90,
             submittedAtLabel: "2026-06-29 09:00",
             rationale: "补充工件截图后再进入老师终审。"
@@ -71,6 +71,8 @@ describe("ReviewQueue", () => {
         ]}
       />
     );
+
+    expect(screen.getByText("待老师裁定")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "通过" }));
 
@@ -80,6 +82,78 @@ describe("ReviewQueue", () => {
         finalScore: 90,
         decision: "approve"
       });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("待老师裁定 0")).toBeInTheDocument();
+      expect(screen.getByText("今日已裁定 1")).toBeInTheDocument();
+      expect(screen.getByText("需重点关注 0")).toBeInTheDocument();
+      expect(screen.getByText("已通过")).toBeInTheDocument();
+      expect(screen.getByText("老师裁定已同步。")).toBeInTheDocument();
+    });
+  });
+
+  it("recomputes summary and item state when the teacher adjusts a pending review", async () => {
+    vi.mocked(decideReview).mockResolvedValue({
+      submissionId: "submission-1",
+      finalScore: 85,
+      decision: "adjust"
+    });
+
+    render(
+      <ReviewQueue
+        summary={{
+          pendingCount: 1,
+          reviewedToday: 1,
+          flaggedCount: 0
+        }}
+        items={[
+          {
+            submissionId: "submission-1",
+            studentName: "Mo",
+            guildName: "Morning Forge",
+            dayLabel: "Day 2",
+            decisionLabel: "已通过",
+            finalScore: 90,
+            submittedAtLabel: "2026-06-29 09:00",
+            rationale: "补充工件截图后再进入老师终审。"
+          },
+          {
+            submissionId: "submission-2",
+            studentName: "Lin",
+            guildName: "Morning Forge",
+            dayLabel: "Day 1",
+            decisionLabel: "已通过",
+            finalScore: 95,
+            submittedAtLabel: "2026-06-29 08:00",
+            rationale: "证据完整，可进入下一关。"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("待老师裁定")).toBeInTheDocument();
+
+    const targetItem = screen.getByText("Mo").closest("li");
+
+    expect(targetItem).not.toBeNull();
+
+    fireEvent.click(within(targetItem as HTMLLIElement).getByRole("button", { name: "调整" }));
+
+    await waitFor(() => {
+      expect(decideReview).toHaveBeenCalledWith({
+        submissionId: "submission-1",
+        finalScore: 85,
+        decision: "adjust"
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("待老师裁定 0")).toBeInTheDocument();
+      expect(screen.getByText("今日已裁定 2")).toBeInTheDocument();
+      expect(screen.getByText("需重点关注 1")).toBeInTheDocument();
+      expect(screen.getByText("需要调整")).toBeInTheDocument();
+      expect(screen.getByText("终评分 85")).toBeInTheDocument();
     });
   });
 });
