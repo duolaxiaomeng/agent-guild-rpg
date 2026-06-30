@@ -652,6 +652,14 @@ function drawWorkstation(
   g.fillRect(cx + 30, cy + 6, 6, 1);
 }
 
+function drawDeskFrontFace(s: Phaser.Scene, cx: number, cy: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x78350f, 1);
+  g.fillRect(cx - 42, cy + 16, 84, 10);
+  g.fillStyle(0x5b3417, 1);
+  g.fillRect(cx - 42, cy + 24, 84, 4);
+}
+
 function drawWallBand(s: Phaser.Scene, x: number, y: number, width: number, height: number) {
   const g = s.add.graphics();
   g.fillStyle(0xe7e5e4, 1);
@@ -1049,13 +1057,13 @@ function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw:
   const seatedAgents = zone.agents.filter((agent) => agent.seated);
 
   drawWallBand(scene, layout.wallBand.x * sx, layout.wallBand.y * sy, layout.wallBand.width * sx, layout.wallBand.height * sy);
-  drawWallFrame(scene, 104 * sx, 74 * sy, 0xf59e0b);
+  drawWallFrame(scene, 98 * sx, 74 * sy, 0xf59e0b);
   drawWallFrame(scene, 154 * sx, 74 * sy, 0xef4444);
-  drawOfficeDisplay(scene, 318 * sx, 76 * sy, "看板");
-  drawPottedPlant(scene, 522 * sx, 82 * sy);
-  drawBookshelf(scene, 586 * sx, 84 * sy);
-  drawOfficeDisplay(scene, 700 * sx, 76 * sy, "报表");
-  drawPixelSign(scene, 808 * sx, 78 * sy, "STUDIO");
+  drawOfficeDisplay(scene, 324 * sx, 76 * sy, "看板");
+  drawPottedPlant(scene, 508 * sx, 82 * sy);
+  drawBookshelf(scene, 580 * sx, 84 * sy);
+  drawOfficeDisplay(scene, 714 * sx, 76 * sy, "报表");
+  drawPixelSign(scene, 826 * sx, 78 * sy, "STUDIO");
 
   drawLoungeFloor(
     scene,
@@ -1065,18 +1073,21 @@ function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw:
     layout.loungeRect.height * sy,
   );
   drawLoungePartition(scene, layout.loungeRect.x * sx, (layout.loungeRect.y - 18) * sy, layout.loungeRect.width * sx);
-  drawPottedPlant(scene, 620 * sx, 336 * sy);
-  drawWaterCooler(scene, 668 * sx, 338 * sy);
-  drawCoffeeStation(scene, 744 * sx, 336 * sy);
-  drawStorageCabinet(scene, 834 * sx, 338 * sy);
-  drawPottedPlant(scene, 884 * sx, 340 * sy);
-  drawLoungeSofa(scene, 786 * sx, 430 * sy);
-  drawPottedPlant(scene, 672 * sx, 426 * sy);
+  drawWaterCooler(scene, 662 * sx, 336 * sy);
+  drawCoffeeStation(scene, 748 * sx, 334 * sy);
+  drawStorageCabinet(scene, 842 * sx, 336 * sy);
+  drawLoungeSofa(scene, 792 * sx, 432 * sy);
+  drawPottedPlant(scene, 624 * sx, 332 * sy);
+  drawPottedPlant(scene, 676 * sx, 430 * sy);
+  drawPottedPlant(scene, 888 * sx, 340 * sy);
 
   layout.doubleDeskAnchors.forEach((anchor, index) => {
+    drawDeskFrontFace(scene, anchor.x * sx, anchor.y * sy);
     drawWorkstation(scene, anchor.x * sx, anchor.y * sy, seatedAgents[index]);
   });
+  drawDeskFrontFace(scene, layout.multiScreenDesk.x * sx, layout.multiScreenDesk.y * sy);
   drawWorkstation(scene, layout.multiScreenDesk.x * sx, layout.multiScreenDesk.y * sy, seatedAgents[2]);
+  drawDeskFrontFace(scene, layout.focusDesk.x * sx, layout.focusDesk.y * sy);
   drawWorkstation(scene, layout.focusDesk.x * sx, layout.focusDesk.y * sy, seatedAgents[3]);
 }
 
@@ -1095,7 +1106,7 @@ function createSceneContent(
   if (zone.id === "workstations") {
     const layout = buildWorkstationsLayout(vw, vh);
     scene.cameras.main.setZoom(layout.cameraZoom);
-    scene.cameras.main.centerOn(vw / 2, vh / 2 + 18);
+    scene.cameras.main.centerOn(vw / 2, vh / 2 + 20);
   }
 
   // Compute tilemap grid size to fill viewport
