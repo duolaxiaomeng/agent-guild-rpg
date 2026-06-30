@@ -6,15 +6,21 @@ describe("buildWorkstationsLayout", () => {
   it("returns the office composition anchors from the reference", () => {
     const layout = buildWorkstationsLayout(960, 540);
 
-    expect(layout.wallBand).toEqual({ x: 64, y: 44, width: 832, height: 70 });
-    expect(layout.doubleDeskAnchors).toHaveLength(4);
-    expect(layout.multiScreenDesk).toEqual({ x: 160, y: 392 });
-    expect(layout.focusDesk).toEqual({ x: 470, y: 394 });
-    expect(layout.loungeRect).toEqual({ x: 610, y: 286, width: 246, height: 184 });
-    expect(layout.walkerAnchors).toEqual([
-      { x: 756, y: 176 },
-      { x: 822, y: 196 },
+    expect(layout.wallBand).toEqual({ x: 48, y: 36, width: 864, height: 76 });
+    expect(layout.doubleDeskAnchors).toEqual([
+      { x: 190, y: 236 },
+      { x: 340, y: 228 },
+      { x: 184, y: 340 },
+      { x: 336, y: 334 },
     ]);
+    expect(layout.multiScreenDesk).toEqual({ x: 170, y: 420 });
+    expect(layout.focusDesk).toEqual({ x: 512, y: 416 });
+    expect(layout.loungeRect).toEqual({ x: 592, y: 262, width: 282, height: 214 });
+    expect(layout.walkerAnchors).toEqual([
+      { x: 736, y: 194 },
+      { x: 812, y: 222 },
+    ]);
+    expect(layout.cameraZoom).toBe(1.16);
   });
 });
 

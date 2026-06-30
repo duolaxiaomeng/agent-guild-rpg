@@ -1,4 +1,5 @@
 import { T, ZONE_DEFS, type ZoneDef, type AgentDef } from "./zone-config";
+import { buildCharacterRenderSpec } from "./workstations-characters";
 
 export const PIXEL_WORLD_MOUNT_ID = "pixel-world";
 
@@ -35,24 +36,26 @@ export type WorkstationsLayout = {
   focusDesk: { x: number; y: number };
   loungeRect: { x: number; y: number; width: number; height: number };
   walkerAnchors: Array<{ x: number; y: number }>;
+  cameraZoom: number;
 };
 
 export function buildWorkstationsLayout(vw: number, _vh: number): WorkstationsLayout {
   return {
-    wallBand: { x: Math.round(vw * 0.067), y: 44, width: Math.round(vw * 0.867), height: 70 },
+    wallBand: { x: 48, y: 36, width: 864, height: 76 },
     doubleDeskAnchors: [
-      { x: 160, y: 214 },
-      { x: 292, y: 214 },
-      { x: 160, y: 292 },
-      { x: 292, y: 292 },
+      { x: 190, y: 236 },
+      { x: 340, y: 228 },
+      { x: 184, y: 340 },
+      { x: 336, y: 334 },
     ],
-    multiScreenDesk: { x: 160, y: 392 },
-    focusDesk: { x: 470, y: 394 },
-    loungeRect: { x: 610, y: 286, width: 246, height: 184 },
+    multiScreenDesk: { x: 170, y: 420 },
+    focusDesk: { x: 512, y: 416 },
+    loungeRect: { x: 592, y: 262, width: 282, height: 214 },
     walkerAnchors: [
-      { x: 756, y: 176 },
-      { x: 822, y: 196 },
+      { x: 736, y: 194 },
+      { x: 812, y: 222 },
     ],
+    cameraZoom: 1.16,
   };
 }
 
@@ -280,33 +283,61 @@ function drawNPCs(
     const y = npc.y * sy;
     const nc = hex(npc.color);
     const g = s.add.graphics();
+    const spec = buildCharacterRenderSpec(npc);
+    const facing = npc.facing ?? "down";
+    const fx = facing === "left" ? -1 : facing === "right" ? 1 : 0;
+    const pose = npc.pose ?? "standing";
 
-    // Shadow
-    g.fillStyle(0x000000, 0.15);
-    g.fillEllipse(x, y + 12, 18, 6);
+    g.fillStyle(0x000000, 0.18);
+    g.fillEllipse(x, y + 14, spec.shadowWidth, 7);
 
-    // Legs (dark pants)
     g.fillStyle(0x1e293b, 1);
-    g.fillRect(x - 5, y, 4, 10);
-    g.fillRect(x + 1, y, 4, 10);
+    if (pose === "walking") {
+      g.fillRect(x - 8, y - 1, 4, spec.legHeight + 1);
+      g.fillRect(x + 2, y + 1, 4, spec.legHeight - 1);
+    } else {
+      g.fillRect(x - 5, y, 4, spec.legHeight - 1);
+      g.fillRect(x + 1, y, 4, spec.legHeight - 1);
+    }
 
-    // Body (shirt)
     g.fillStyle(nc, 1);
-    g.fillRect(x - 6, y - 12, 12, 14);
+    g.fillRect(x - spec.bodyWidth / 2, y - 12, spec.bodyWidth, spec.bodyHeight);
+    g.fillStyle(0xffffff, 0.14);
+    g.fillRect(x - 5, y - 10, 4, 10);
 
-    // Head
     g.fillStyle(0xfde68a, 1);
-    g.fillCircle(x, y - 18, 7);
+    g.fillCircle(x + fx * 1.5, y - 18, spec.headRadius);
 
-    // Hair
     g.fillStyle(0x78350f, 1);
-    g.fillCircle(x, y - 22, 6);
-    g.fillRect(x - 7, y - 22, 14, 3);
+    g.fillCircle(x + fx, y - 22, spec.headRadius - 1);
+    g.fillRect(x - 7 + fx, y - 22, 14, 3);
 
-    // Eyes
+    if (spec.jacket) {
+      g.fillStyle(0x1f2937, 0.55);
+      g.fillRect(x - spec.bodyWidth / 2, y - 12, 4, spec.bodyHeight);
+    }
+
+    if (spec.lanyard) {
+      g.fillStyle(0xf8fafc, 0.9);
+      g.fillRect(x - 1, y - 10, 2, 6);
+    }
+
     g.fillStyle(0x1e293b, 1);
-    g.fillCircle(x - 3, y - 18, 1);
-    g.fillCircle(x + 3, y - 18, 1);
+    if (fx === 0) {
+      g.fillCircle(x - 3, y - 18, 1);
+      g.fillCircle(x + 3, y - 18, 1);
+    } else {
+      g.fillCircle(x + fx * 2, y - 18, 1.2);
+    }
+
+    g.fillStyle(0xfde68a, 1);
+    if (pose === "walking") {
+      g.fillRect(x - 10, y - 10, 3, 10);
+      g.fillRect(x + 7, y - 8, 3, 8);
+    } else {
+      g.fillRect(x - 10, y - 9, 3, 8);
+      g.fillRect(x + 7, y - 9, 3, 8);
+    }
 
     // Name label
     strokeText(s, x, y - 34, npc.name, "11px", 0.5, 1);
@@ -324,6 +355,30 @@ function drawNPCs(
       ease: "Sine.easeInOut",
     });
   }
+}
+
+function drawDeskArms(
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  pose: AgentDef["pose"],
+) {
+  g.fillStyle(0xfde68a, 1);
+
+  if (pose === "focus") {
+    g.fillRect(x - 9, y - 12, 3, 5);
+    g.fillRect(x + 6, y - 8, 3, 4);
+    return;
+  }
+
+  if (pose === "typing") {
+    g.fillRect(x - 12, y - 11, 4, 7);
+    g.fillRect(x + 8, y - 9, 4, 6);
+    return;
+  }
+
+  g.fillRect(x - 10, y - 10, 3, 8);
+  g.fillRect(x + 7, y - 8, 3, 8);
 }
 
 /* ------------------------------------------------------------------ */
@@ -345,64 +400,104 @@ function drawAgents(
     const shirtC = hex(agent.shirtColor);
     const hairC = hex(agent.hairColor);
     const g = s.add.graphics();
+    const spec = buildCharacterRenderSpec(agent);
+    const facing = agent.facing ?? "down";
+    const fx = facing === "left" ? -1 : facing === "right" ? 1 : 0;
+    const pose = agent.pose ?? (agent.seated ? "typing" : "standing");
 
-    // Shadow
-    g.fillStyle(0x000000, 0.15);
-    g.fillEllipse(x, y + 12, 18, 6);
+    g.fillStyle(0x000000, 0.18);
+    g.fillEllipse(x, y + 14, spec.shadowWidth, 7);
 
     if (agent.seated) {
-      // Chair (black office chair)
       g.fillStyle(0x1e293b, 1);
-      g.fillEllipse(x, y + 8, 20, 10);
+      g.fillEllipse(x, y + 9, 22, 12);
       g.fillStyle(0x334155, 1);
-      g.fillEllipse(x, y + 6, 16, 8);
+      g.fillEllipse(x, y + 6, 18, 8);
+      g.fillRect(x - 8, y - 2, 16, 4);
 
-      // Legs (seated, shorter)
       g.fillStyle(0x1e293b, 1);
-      g.fillRect(x - 5, y - 2, 4, 8);
-      g.fillRect(x + 1, y - 2, 4, 8);
+      g.fillRect(x - 7, y - 1, 4, 9);
+      g.fillRect(x + 3, y, 4, 8);
 
-      // Body
       g.fillStyle(shirtC, 1);
-      g.fillRect(x - 6, y - 14, 12, 14);
+      g.fillRect(x - spec.bodyWidth / 2, y - 15, spec.bodyWidth, spec.bodyHeight + 1);
+      g.fillStyle(0xffffff, 0.14);
+      g.fillRect(x - 5, y - 12, 5, 10);
 
-      // Head
       g.fillStyle(0xfde68a, 1);
-      g.fillCircle(x, y - 20, 7);
+      g.fillCircle(x + fx * 2, y - 21, spec.headRadius);
 
-      // Hair
       g.fillStyle(hairC, 1);
-      g.fillCircle(x, y - 24, 6);
-      g.fillRect(x - 7, y - 24, 14, 3);
+      g.fillCircle(x + fx, y - 24, spec.headRadius - 1);
+      g.fillRect(x - 7 + fx, y - 24, 14, 3);
 
-      // Eyes (looking at screen)
+      if (spec.jacket) {
+        g.fillStyle(0x1f2937, 0.55);
+        g.fillRect(x - spec.bodyWidth / 2, y - 15, 4, spec.bodyHeight + 1);
+      }
+
+      if (spec.lanyard) {
+        g.fillStyle(0xf8fafc, 0.9);
+        g.fillRect(x - 1, y - 13, 2, 7);
+      }
+
       g.fillStyle(0x1e293b, 1);
-      g.fillCircle(x - 3, y - 20, 1);
-      g.fillCircle(x + 3, y - 20, 1);
+      if (fx === 0) {
+        g.fillCircle(x - 3, y - 20, 1);
+        g.fillCircle(x + 3, y - 20, 1);
+      } else {
+        g.fillCircle(x + fx * 2, y - 20, 1.2);
+      }
 
-      // Arms on desk
-      g.fillStyle(0xfde68a, 1);
-      g.fillRect(x - 10, y - 10, 4, 6);
-      g.fillRect(x + 6, y - 10, 4, 6);
+      drawDeskArms(g, x, y, pose);
     } else {
-      // Standing agent
       g.fillStyle(0x1e293b, 1);
-      g.fillRect(x - 5, y, 4, 10);
-      g.fillRect(x + 1, y, 4, 10);
+      if (pose === "walking") {
+        g.fillRect(x - 8, y - 1, 4, spec.legHeight + 1);
+        g.fillRect(x + 2, y + 1, 4, spec.legHeight - 1);
+      } else {
+        g.fillRect(x - 5, y, 4, spec.legHeight - 1);
+        g.fillRect(x + 1, y, 4, spec.legHeight - 1);
+      }
 
       g.fillStyle(shirtC, 1);
-      g.fillRect(x - 6, y - 12, 12, 14);
+      g.fillRect(x - spec.bodyWidth / 2, y - 12, spec.bodyWidth, spec.bodyHeight + 1);
+      g.fillStyle(0xffffff, 0.14);
+      g.fillRect(x - 4, y - 10, 4, 10);
 
       g.fillStyle(0xfde68a, 1);
-      g.fillCircle(x, y - 18, 7);
+      g.fillCircle(x + fx * 1.5, y - 18, spec.headRadius);
 
       g.fillStyle(hairC, 1);
-      g.fillCircle(x, y - 22, 6);
-      g.fillRect(x - 7, y - 22, 14, 3);
+      g.fillCircle(x + fx, y - 22, spec.headRadius - 1);
+      g.fillRect(x - 7 + fx, y - 22, 14, 3);
+
+      if (spec.jacket) {
+        g.fillStyle(0x1f2937, 0.55);
+        g.fillRect(x - spec.bodyWidth / 2, y - 12, 4, spec.bodyHeight + 1);
+      }
+
+      if (spec.lanyard) {
+        g.fillStyle(0xf8fafc, 0.9);
+        g.fillRect(x - 1, y - 10, 2, 6);
+      }
 
       g.fillStyle(0x1e293b, 1);
-      g.fillCircle(x - 3, y - 18, 1);
-      g.fillCircle(x + 3, y - 18, 1);
+      if (fx === 0) {
+        g.fillCircle(x - 3, y - 18, 1);
+        g.fillCircle(x + 3, y - 18, 1);
+      } else {
+        g.fillCircle(x + fx * 2, y - 18, 1.2);
+      }
+
+      g.fillStyle(0xfde68a, 1);
+      if (pose === "standing") {
+        g.fillRect(x - 11, y - 8, 4, 8);
+        g.fillRect(x + 7, y - 9, 4, 10);
+      } else {
+        g.fillRect(x - 10, y - 10, 3, 10);
+        g.fillRect(x + 7, y - 8, 3, 8);
+      }
     }
 
     // Blue circular ID badge
@@ -648,6 +743,23 @@ function drawLoungeFloor(
   g.fillRect(x, y - 14, width, 14);
   g.fillStyle(0x94a3b8, 1);
   g.fillRect(x - 12, y - 10, width + 24, 10);
+  g.fillStyle(0x000000, 0.08);
+  g.fillRect(x + 8, y + height - 12, width - 16, 8);
+}
+
+function drawLoungePartition(
+  s: Phaser.Scene,
+  x: number,
+  y: number,
+  width: number,
+) {
+  const g = s.add.graphics();
+  g.fillStyle(0xcbd5e1, 1);
+  g.fillRect(x, y, width, 18);
+  g.fillStyle(0x94a3b8, 1);
+  g.fillRect(x, y - 10, width, 10);
+  g.fillStyle(0x64748b, 0.25);
+  g.fillRect(x, y + 18, width, 5);
 }
 
 function drawLoungeSofa(s: Phaser.Scene, cx: number, cy: number) {
@@ -936,14 +1048,14 @@ function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw:
   const sy = vh / 540;
   const seatedAgents = zone.agents.filter((agent) => agent.seated);
 
-  drawWallBand(scene, layout.wallBand.x, layout.wallBand.y, layout.wallBand.width, layout.wallBand.height);
-  drawWallFrame(scene, 112 * sx, 76 * sy, 0xf59e0b);
-  drawWallFrame(scene, 156 * sx, 76 * sy, 0xef4444);
-  drawOfficeDisplay(scene, 316 * sx, 76 * sy, "看板");
-  drawPottedPlant(scene, 536 * sx, 82 * sy);
-  drawBookshelf(scene, 592 * sx, 82 * sy);
-  drawOfficeDisplay(scene, 688 * sx, 76 * sy, "报表");
-  drawPixelSign(scene, 796 * sx, 78 * sy, "PIXEL");
+  drawWallBand(scene, layout.wallBand.x * sx, layout.wallBand.y * sy, layout.wallBand.width * sx, layout.wallBand.height * sy);
+  drawWallFrame(scene, 104 * sx, 74 * sy, 0xf59e0b);
+  drawWallFrame(scene, 154 * sx, 74 * sy, 0xef4444);
+  drawOfficeDisplay(scene, 318 * sx, 76 * sy, "看板");
+  drawPottedPlant(scene, 522 * sx, 82 * sy);
+  drawBookshelf(scene, 586 * sx, 84 * sy);
+  drawOfficeDisplay(scene, 700 * sx, 76 * sy, "报表");
+  drawPixelSign(scene, 808 * sx, 78 * sy, "STUDIO");
 
   drawLoungeFloor(
     scene,
@@ -952,12 +1064,14 @@ function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw:
     layout.loungeRect.width * sx,
     layout.loungeRect.height * sy,
   );
-  drawPottedPlant(scene, 620 * sx, 348 * sy);
-  drawWaterCooler(scene, 664 * sx, 352 * sy);
-  drawCoffeeStation(scene, 732 * sx, 348 * sy);
-  drawStorageCabinet(scene, 816 * sx, 350 * sy);
-  drawPottedPlant(scene, 892 * sx, 352 * sy);
-  drawLoungeSofa(scene, 784 * sx, 434 * sy);
+  drawLoungePartition(scene, layout.loungeRect.x * sx, (layout.loungeRect.y - 18) * sy, layout.loungeRect.width * sx);
+  drawPottedPlant(scene, 620 * sx, 336 * sy);
+  drawWaterCooler(scene, 668 * sx, 338 * sy);
+  drawCoffeeStation(scene, 744 * sx, 336 * sy);
+  drawStorageCabinet(scene, 834 * sx, 338 * sy);
+  drawPottedPlant(scene, 884 * sx, 340 * sy);
+  drawLoungeSofa(scene, 786 * sx, 430 * sy);
+  drawPottedPlant(scene, 672 * sx, 426 * sy);
 
   layout.doubleDeskAnchors.forEach((anchor, index) => {
     drawWorkstation(scene, anchor.x * sx, anchor.y * sy, seatedAgents[index]);
@@ -978,6 +1092,11 @@ function createSceneContent(
   const vh = scene.scale.height;
 
   scene.cameras.main.setBackgroundColor(zone.bgColor);
+  if (zone.id === "workstations") {
+    const layout = buildWorkstationsLayout(vw, vh);
+    scene.cameras.main.setZoom(layout.cameraZoom);
+    scene.cameras.main.centerOn(vw / 2, vh / 2 + 18);
+  }
 
   // Compute tilemap grid size to fill viewport
   const scale = Math.max(Math.ceil(vw / (45 * TILE_SIZE)), 2);
