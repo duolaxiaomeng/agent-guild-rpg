@@ -1,5 +1,16 @@
 export type ZoneId = "lobby" | "workstations" | "collab-room" | "review-station";
 
+export type OfficeOutfit =
+  | "blue-shirt"
+  | "green-jacket"
+  | "purple-shirt"
+  | "orange-jacket"
+  | "navy-lead"
+  | "teal-staff"
+  | "gray-visitor";
+
+export type OfficeArchetype = "maker" | "operator" | "lead" | "staff" | "visitor";
+
 export type NpcDef = {
   id: string;
   name: string;
@@ -7,6 +18,10 @@ export type NpcDef = {
   y: number;
   tooltip: string;
   color: string;
+  pose?: "walking" | "standing" | "talking" | "lounging";
+  facing?: "left" | "right" | "up" | "down";
+  archetype?: OfficeArchetype;
+  outfit?: OfficeOutfit;
 };
 
 export type AgentDef = {
@@ -20,6 +35,10 @@ export type AgentDef = {
   hairColor: string;
   statusIcon?: "search" | "warning" | "notify" | "ok";
   seated?: boolean;
+  pose?: "typing" | "focus" | "standing" | "walking" | "talking";
+  facing?: "left" | "right" | "up" | "down";
+  archetype?: OfficeArchetype;
+  outfit?: OfficeOutfit;
 };
 
 export type ZoneDef = {
@@ -149,68 +168,88 @@ export const ZONE_DEFS: ZoneDef[] = [
     floorStyle: "mixed",
     decorations: [],
     npcs: [
-      { id: "walker-a", name: "巡场同事", x: 760, y: 178, tooltip: "去会议角聊一下", color: "#0f766e" },
-      { id: "walker-b", name: "访客", x: 828, y: 194, tooltip: "刚从休息区路过", color: "#334155" },
+      { id: "walker-a", name: "巡场同事", x: 744, y: 188, tooltip: "去会议角聊一下", color: "#0f766e", pose: "walking", facing: "left", archetype: "staff", outfit: "teal-staff" },
+      { id: "walker-b", name: "访客", x: 816, y: 214, tooltip: "刚从休息区路过", color: "#334155", pose: "talking", facing: "left", archetype: "visitor", outfit: "gray-visitor" },
     ],
     agents: [
       {
         id: "browser-agent",
         label: "Browser",
         badgeNum: 1,
-        x: 208,
-        y: 214,
+        x: 196,
+        y: 246,
         tooltip: "正在整理方案...",
         shirtColor: "#3b82f6",
         hairColor: "#92400e",
         statusIcon: "search",
         seated: true,
+        pose: "focus",
+        facing: "right",
+        archetype: "maker",
+        outfit: "blue-shirt",
       },
       {
         id: "coding-agent",
         label: "Coder",
         badgeNum: 2,
-        x: 324,
-        y: 214,
+        x: 332,
+        y: 246,
         tooltip: "正在实现界面...",
         shirtColor: "#22c55e",
         hairColor: "#1e293b",
         statusIcon: "ok",
         seated: true,
+        pose: "typing",
+        facing: "left",
+        archetype: "maker",
+        outfit: "green-jacket",
       },
       {
         id: "files-agent",
         label: "Files",
         badgeNum: 3,
-        x: 212,
-        y: 374,
+        x: 196,
+        y: 344,
         tooltip: "正在整理文件...",
         shirtColor: "#a855f7",
         hairColor: "#78350f",
         statusIcon: "notify",
         seated: true,
+        pose: "focus",
+        facing: "right",
+        archetype: "operator",
+        outfit: "purple-shirt",
       },
       {
         id: "ops-agent",
         label: "Ops",
         badgeNum: 4,
-        x: 330,
-        y: 374,
+        x: 332,
+        y: 344,
         tooltip: "正在关注异常提醒...",
         shirtColor: "#f97316",
         hairColor: "#7c2d12",
         statusIcon: "warning",
         seated: true,
+        pose: "typing",
+        facing: "left",
+        archetype: "operator",
+        outfit: "orange-jacket",
       },
       {
         id: "focus-agent",
         label: "Lead",
         badgeNum: 5,
-        x: 488,
-        y: 424,
+        x: 512,
+        y: 426,
         tooltip: "正在协调任务...",
         shirtColor: "#2563eb",
         hairColor: "#6b21a8",
         seated: false,
+        pose: "standing",
+        facing: "down",
+        archetype: "lead",
+        outfit: "navy-lead",
       },
     ],
     landmarks: [
