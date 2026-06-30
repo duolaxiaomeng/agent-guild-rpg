@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkstationsLayout } from "./phaser-scene";
+import { T, ZONE_DEFS } from "./zone-config";
+import { buildOfficeTilesForZone, buildWorkstationsLayout } from "./phaser-scene";
 
 describe("buildWorkstationsLayout", () => {
   it("returns the office composition anchors from the reference", () => {
@@ -14,5 +15,17 @@ describe("buildWorkstationsLayout", () => {
       { x: 756, y: 176 },
       { x: 822, y: 196 },
     ]);
+  });
+});
+
+describe("buildOfficeTilesForZone", () => {
+  it("uses gray tile workspace with a wood lounge for workstations", () => {
+    const zone = ZONE_DEFS.find((item) => item.id === "workstations")!;
+    const data = buildOfficeTilesForZone(48, 30, zone, 960, 540);
+
+    expect(data[2][8]).toBe(T.FLOOR + 1);
+    expect(data[12][9]).toBe(T.STONE + 1);
+    expect(data[23][36]).toBe(T.WOOD + 1);
+    expect(data[23][42]).toBe(T.WOOD_ALT + 1);
   });
 });

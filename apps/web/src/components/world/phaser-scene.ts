@@ -1,4 +1,4 @@
-import { ZONE_DEFS, type ZoneDef, type AgentDef } from "./zone-config";
+import { T, ZONE_DEFS, type ZoneDef, type AgentDef } from "./zone-config";
 
 export const PIXEL_WORLD_MOUNT_ID = "pixel-world";
 
@@ -137,6 +137,36 @@ function generateOfficeTiles(
           }
         }
       }
+    }
+  }
+
+  return data;
+}
+
+export function buildOfficeTilesForZone(
+  cols: number,
+  rows: number,
+  zone: ZoneDef,
+  vw: number,
+  vh: number,
+): number[][] {
+  if (zone.id !== "workstations") {
+    return generateOfficeTiles(cols, rows, zone.baseTile, zone.varTile, zone.pathTile, zone, vw, vh);
+  }
+
+  const data = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, (_, x) => tileVal(x % 5 === 0 ? T.FLOOR : T.STONE)),
+  );
+
+  for (let y = 0; y < 5; y++) {
+    for (let x = 4; x < cols - 4; x++) {
+      data[y][x] = tileVal(T.FLOOR);
+    }
+  }
+
+  for (let y = 16; y < rows - 2; y++) {
+    for (let x = 31; x < cols - 2; x++) {
+      data[y][x] = tileVal(x % 12 < 6 ? T.WOOD : T.WOOD_ALT);
     }
   }
 
@@ -527,6 +557,121 @@ function drawWorkstation(
   g.fillRect(cx + 30, cy + 6, 6, 1);
 }
 
+function drawWallBand(s: Phaser.Scene, x: number, y: number, width: number, height: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0xe7e5e4, 1);
+  g.fillRect(x, y, width, height);
+  g.fillStyle(0x1f2937, 1);
+  g.fillRect(x, y - 18, width, 18);
+  g.fillStyle(0xf8fafc, 0.9);
+  g.fillRect(x, y + height - 8, width, 4);
+}
+
+function drawWallFrame(s: Phaser.Scene, cx: number, cy: number, accent: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x64748b, 1);
+  g.fillRect(cx - 18, cy - 16, 36, 32);
+  g.fillStyle(0xf8fafc, 1);
+  g.fillRect(cx - 14, cy - 12, 28, 24);
+  g.fillStyle(accent, 1);
+  g.fillRect(cx - 10, cy - 8, 20, 16);
+  g.fillStyle(0xffffff, 0.45);
+  g.fillRect(cx - 8, cy - 6, 8, 6);
+}
+
+function drawBookshelf(s: Phaser.Scene, cx: number, cy: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x475569, 1);
+  g.fillRect(cx - 22, cy - 28, 44, 56);
+  g.fillStyle(0x94a3b8, 1);
+  g.fillRect(cx - 18, cy - 8, 36, 3);
+  g.fillRect(cx - 18, cy + 10, 36, 3);
+  g.fillStyle(0x22c55e, 1);
+  g.fillRect(cx - 16, cy - 22, 8, 12);
+  g.fillStyle(0xf59e0b, 1);
+  g.fillRect(cx - 4, cy - 22, 8, 12);
+  g.fillStyle(0x3b82f6, 1);
+  g.fillRect(cx + 8, cy - 22, 8, 12);
+  g.fillStyle(0x60a5fa, 1);
+  g.fillRect(cx - 12, cy - 2, 6, 10);
+  g.fillStyle(0xf97316, 1);
+  g.fillRect(cx - 2, cy - 2, 6, 10);
+  g.fillStyle(0xa855f7, 1);
+  g.fillRect(cx + 8, cy - 2, 6, 10);
+}
+
+function drawPottedPlant(s: Phaser.Scene, cx: number, cy: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x94a3b8, 1);
+  g.fillRect(cx - 8, cy + 4, 16, 12);
+  g.fillStyle(0x16a34a, 1);
+  g.fillCircle(cx, cy, 12);
+  g.fillCircle(cx - 8, cy + 4, 7);
+  g.fillCircle(cx + 8, cy + 4, 7);
+}
+
+function drawWaterCooler(s: Phaser.Scene, cx: number, cy: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x334155, 1);
+  g.fillRect(cx - 12, cy - 20, 24, 38);
+  g.fillStyle(0x60a5fa, 0.85);
+  g.fillCircle(cx, cy - 24, 10);
+  g.fillStyle(0x0f172a, 1);
+  g.fillRect(cx - 5, cy - 4, 10, 4);
+}
+
+function drawStorageCabinet(s: Phaser.Scene, cx: number, cy: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x475569, 1);
+  g.fillRect(cx - 18, cy - 22, 36, 44);
+  g.fillStyle(0x64748b, 1);
+  g.fillRect(cx - 14, cy - 18, 28, 36);
+  g.fillStyle(0xf8fafc, 0.8);
+  g.fillRect(cx - 10, cy - 4, 20, 2);
+}
+
+function drawLoungeSofa(s: Phaser.Scene, cx: number, cy: number) {
+  const g = s.add.graphics();
+  g.fillStyle(0x334155, 1);
+  g.fillRect(cx - 30, cy - 16, 60, 32);
+  g.fillRect(cx - 30, cy - 16, 18, 48);
+  g.fillRect(cx + 12, cy - 16, 18, 48);
+  g.fillStyle(0x64748b, 1);
+  g.fillRect(cx - 24, cy - 10, 48, 20);
+}
+
+function drawOfficeDisplay(s: Phaser.Scene, cx: number, cy: number, label: string) {
+  const g = s.add.graphics();
+  g.fillStyle(0x475569, 1);
+  g.fillRect(cx - 34, cy - 18, 68, 36);
+  g.fillStyle(0xf8fafc, 1);
+  g.fillRect(cx - 30, cy - 14, 60, 28);
+  g.lineStyle(2, 0xef4444, 1);
+  g.beginPath();
+  g.moveTo(cx - 22, cy + 8);
+  g.lineTo(cx - 10, cy);
+  g.lineTo(cx + 2, cy + 4);
+  g.lineTo(cx + 14, cy - 8);
+  g.strokePath();
+  g.fillStyle(0x3b82f6, 1);
+  g.fillCircle(cx + 18, cy - 10, 4);
+  strokeText(s, cx, cy + 30, label, "10px", 0.5, 0);
+}
+
+function drawPixelSign(s: Phaser.Scene, cx: number, cy: number, text: string) {
+  const g = s.add.graphics();
+  g.fillStyle(0x6b7280, 1);
+  g.fillRect(cx - 46, cy - 18, 92, 36);
+  g.fillStyle(0xf5f5f4, 1);
+  g.fillRect(cx - 42, cy - 14, 84, 28);
+  const sign = s.add.text(cx, cy, text, {
+    color: "#111827",
+    fontSize: "12px",
+    fontFamily: '"Press Start 2P", monospace',
+  });
+  sign.setOrigin(0.5, 0.5);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Landmark rendering (office-themed)                                 */
 /* ------------------------------------------------------------------ */
@@ -760,7 +905,39 @@ const LANDMARK_DRAW: Record<
   "圆桌会议": drawRoundTableMeeting,
   "任务看板": drawTaskBoard,
   "评审工作台": drawReviewDesk,
+  "顶部展示墙": () => undefined,
+  "中心工位": () => undefined,
+  "休息区": () => undefined,
 };
+
+function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw: number, vh: number) {
+  const layout = buildWorkstationsLayout(vw, vh);
+  const sx = vw / 960;
+  const sy = vh / 540;
+  const seatedAgents = zone.agents.filter((agent) => agent.seated);
+
+  drawWallBand(scene, layout.wallBand.x, layout.wallBand.y, layout.wallBand.width, layout.wallBand.height);
+  drawWallFrame(scene, 112 * sx, 76 * sy, 0xf59e0b);
+  drawWallFrame(scene, 156 * sx, 76 * sy, 0xef4444);
+  drawOfficeDisplay(scene, 316 * sx, 76 * sy, "看板");
+  drawPottedPlant(scene, 536 * sx, 82 * sy);
+  drawBookshelf(scene, 592 * sx, 82 * sy);
+  drawOfficeDisplay(scene, 688 * sx, 76 * sy, "报表");
+  drawPixelSign(scene, 796 * sx, 78 * sy, "PIXEL");
+
+  drawPottedPlant(scene, 620 * sx, 348 * sy);
+  drawWaterCooler(scene, 664 * sx, 352 * sy);
+  drawCoffeeStation(scene, 732 * sx, 348 * sy);
+  drawStorageCabinet(scene, 816 * sx, 350 * sy);
+  drawPottedPlant(scene, 892 * sx, 352 * sy);
+  drawLoungeSofa(scene, 784 * sx, 434 * sy);
+
+  layout.doubleDeskAnchors.forEach((anchor, index) => {
+    drawWorkstation(scene, anchor.x * sx, anchor.y * sy, seatedAgents[index]);
+  });
+  drawWorkstation(scene, layout.multiScreenDesk.x * sx, layout.multiScreenDesk.y * sy, seatedAgents[2]);
+  drawWorkstation(scene, layout.focusDesk.x * sx, layout.focusDesk.y * sy, seatedAgents[3]);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Zone scene create                                                  */
@@ -781,16 +958,7 @@ function createSceneContent(
   const mapRows = Math.ceil(vh / (TILE_SIZE * scale)) + 2;
 
   // -- Ground tilemap layer --
-  const groundData = generateOfficeTiles(
-    mapCols,
-    mapRows,
-    zone.baseTile,
-    zone.varTile,
-    zone.pathTile,
-    zone,
-    vw,
-    vh,
-  );
+  const groundData = buildOfficeTilesForZone(mapCols, mapRows, zone, vw, vh);
 
   const map = scene.make.tilemap({
     data: groundData,
@@ -822,14 +990,7 @@ function createSceneContent(
 
   // -- Workstations (for workstations zone) --
   if (zone.id === "workstations") {
-    const sx = vw / 960;
-    const sy = vh / 540;
-    // Draw workstation desks for each seated agent
-    for (const agent of zone.agents) {
-      if (agent.seated) {
-        drawWorkstation(scene, agent.x * sx, agent.y * sy, agent);
-      }
-    }
+    drawReplicatedWorkstationsScene(scene, zone, vw, vh);
   }
 
   // -- Landmarks (Graphics API) --
