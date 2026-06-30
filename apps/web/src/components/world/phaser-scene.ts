@@ -630,6 +630,26 @@ function drawStorageCabinet(s: Phaser.Scene, cx: number, cy: number) {
   g.fillRect(cx - 10, cy - 4, 20, 2);
 }
 
+function drawLoungeFloor(
+  s: Phaser.Scene,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const g = s.add.graphics();
+  g.fillStyle(0xd6c29c, 1);
+  g.fillRect(x, y, width, height);
+  g.fillStyle(0xb08968, 0.45);
+  for (let i = 0; i < width; i += 18) {
+    g.fillRect(x + i, y, 10, height);
+  }
+  g.fillStyle(0xe5d5b3, 1);
+  g.fillRect(x, y - 14, width, 14);
+  g.fillStyle(0x94a3b8, 1);
+  g.fillRect(x - 12, y - 10, width + 24, 10);
+}
+
 function drawLoungeSofa(s: Phaser.Scene, cx: number, cy: number) {
   const g = s.add.graphics();
   g.fillStyle(0x334155, 1);
@@ -925,6 +945,13 @@ function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw:
   drawOfficeDisplay(scene, 688 * sx, 76 * sy, "报表");
   drawPixelSign(scene, 796 * sx, 78 * sy, "PIXEL");
 
+  drawLoungeFloor(
+    scene,
+    layout.loungeRect.x * sx,
+    layout.loungeRect.y * sy,
+    layout.loungeRect.width * sx,
+    layout.loungeRect.height * sy,
+  );
   drawPottedPlant(scene, 620 * sx, 348 * sy);
   drawWaterCooler(scene, 664 * sx, 352 * sy);
   drawCoffeeStation(scene, 732 * sx, 348 * sy);
