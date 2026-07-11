@@ -3,6 +3,7 @@ import { HealthController } from "./health.controller";
 import { AuthController } from "./modules/auth/auth.controller";
 import { AuthService } from "./modules/auth/auth.service";
 import { ChatController } from "./modules/chat/chat.controller";
+import { ClassroomsModule } from "./modules/classrooms/classrooms.module";
 import { GuildsController } from "./modules/guilds/guilds.controller";
 import { ReviewQueueService } from "./modules/queue/review.queue";
 import { QuestsController } from "./modules/quests/quests.controller";
@@ -15,7 +16,7 @@ import { WorldController } from "./modules/world/world.controller";
 import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ClassroomsModule],
   controllers: [
     HealthController,
     AuthController,
