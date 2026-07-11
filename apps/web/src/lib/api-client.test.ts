@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createChatMessage,
   createRoomAccessGrant,
   createSubmission,
   decideReview,
+  getChatRoom,
+  getChatRoomSafe,
   getRoomAccessGrants,
   getRoomAccessGrantsSafe,
   getChatOverviewSafe,
@@ -17,12 +20,94 @@ import {
   getReviewQueue,
   revokeRoomAccessGrant,
   getWorldPayloadSafe,
-  getWorldPayload
+  getWorldPayload,
+  createAgentPairing,
+  getAgentConnectorProfile,
+  getAgentEvents,
+  getActiveClassroom,
+  getClassroomSnapshot,
+  getActiveClassroomSafe,
+  pauseClassroomStage,
+  extendClassroomStage,
+  claimHelpRequest,
+  createHelpRequest,
+  resolveHelpRequest,
+  getHelpRequestsSafe,
+  getHelpRequests
 } from "./api-client";
 
 describe("api client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe("classroom", () => {
+    const snapshot = {
+      session: { id: "class-1", courseWorldId: "course-1", dayId: "day-1", status: "live", version: 3 },
+      currentStage: null,
+      stages: [],
+      helpRequests: [],
+      viewer: { role: "teacher", canControlStages: true, canHandleHelp: true },
+      serverNow: "2026-07-12T09:00:00.000Z"
+    };
+
+    it("gets the active classroom with the bearer token and no cache", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => snapshot
+      } as Response);
+
+      await expect(getActiveClassroom("session_teacher-1")).resolves.toEqual(snapshot);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "http://localhost:3001/classrooms/sessions/active",
+        expect.objectContaining({
+          cache: "no-store",
+          headers: { Authorization: "Bearer session_teacher-1" }
+        })
+      );
+    });
+
+    it("reads a classroom snapshot and help requests", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => snapshot
+      } as Response);
+
+      await getClassroomSnapshot("class-1", "session_teacher-1");
+      await getHelpRequests("class-1", "session_teacher-1");
+      expect(fetchSpy).toHaveBeenNthCalledWith(1, "http://localhost:3001/classrooms/sessions/class-1", expect.objectContaining({ cache: "no-store", headers: { Authorization: "Bearer session_teacher-1" } }));
+      expect(fetchSpy).toHaveBeenNthCalledWith(2, "http://localhost:3001/classrooms/sessions/class-1/help-requests", expect.objectContaining({ cache: "no-store", headers: { Authorization: "Bearer session_teacher-1" } }));
+    });
+
+    it("posts stage controls with version and extension seconds", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, json: async () => snapshot } as Response);
+      await pauseClassroomStage("stage-1", 2, "session_teacher-1");
+      await extendClassroomStage("stage-1", 90, 2, "session_teacher-1");
+      expect(fetchSpy).toHaveBeenNthCalledWith(1, "http://localhost:3001/classrooms/stages/stage-1/pause", expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer session_teacher-1" }, body: JSON.stringify({ expectedVersion: 2 }) }));
+      expect(fetchSpy).toHaveBeenNthCalledWith(2, "http://localhost:3001/classrooms/stages/stage-1/extend", expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer session_teacher-1" }, body: JSON.stringify({ seconds: 90, expectedVersion: 2 }) }));
+    });
+
+    it("posts help lifecycle payloads with authorization", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+      await createHelpRequest({ sessionId: "class-1", category: "question", message: "卡住了" }, "session_student-1");
+      await claimHelpRequest("help-1", 4, "session_teacher-1");
+      await resolveHelpRequest("help-1", "已协助", "session_teacher-1", 5);
+      expect(fetchSpy).toHaveBeenNthCalledWith(1, "http://localhost:3001/classrooms/help-requests", expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer session_student-1" }, body: JSON.stringify({ sessionId: "class-1", category: "question", message: "卡住了" }) }));
+      expect(fetchSpy).toHaveBeenNthCalledWith(2, "http://localhost:3001/classrooms/help-requests/help-1/claim", expect.objectContaining({ body: JSON.stringify({ expectedVersion: 4 }) }));
+      expect(fetchSpy).toHaveBeenNthCalledWith(3, "http://localhost:3001/classrooms/help-requests/help-1/resolve", expect.objectContaining({ body: JSON.stringify({ resolutionNote: "已协助", expectedVersion: 5 }) }));
+    });
+
+    it("returns a degraded empty snapshot when active classroom is unavailable", async () => {
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+      const result = await getActiveClassroomSafe("session_teacher-1");
+      expect(result.degraded).toBe(true);
+      expect(result.data).toMatchObject({ session: { id: "" }, stages: [], helpRequests: [] });
+    });
+
+    it("returns a degraded empty help queue when unavailable", async () => {
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+      await expect(getHelpRequestsSafe("class-1", "session_teacher-1")).resolves.toEqual({ data: [], degraded: true });
+    });
   });
 
   it("requests the world payload without cache", async () => {
@@ -41,6 +126,79 @@ describe("api client", () => {
     expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/world", {
       cache: "no-store"
     });
+  });
+
+  it("creates a short-lived local Agent pairing code", async () => {
+    const mockPayload = {
+      pairingCode: "ABCD2345",
+      expiresAt: "2026-07-12T04:10:00.000Z"
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(createAgentPairing("session_student-1")).resolves.toEqual(mockPayload);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/agent-connectors/pairing",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer session_student-1"
+        },
+        body: "{}"
+      })
+    );
+  });
+
+  it("reads the connected Agent profile and Day event timeline", async () => {
+    const profile = {
+      connectorId: "connector-1",
+      agentSessionId: "session-1",
+      provider: "codex-cli",
+      clientName: "lin-mac",
+      status: "online",
+      capabilities: ["events"],
+      connectedAt: "2026-07-12T04:00:00.000Z",
+      lastSeenAt: "2026-07-12T04:00:00.000Z"
+    };
+    const events = [
+      {
+        id: "event-1",
+        connectorId: "connector-1",
+        studentId: "student-1",
+        dayId: "day-1",
+        type: "run.started",
+        payload: { instruction: "Inspect the project" },
+        occurredAt: "2026-07-12T04:00:00.000Z",
+        createdAt: "2026-07-12T04:00:00.000Z"
+      }
+    ];
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: true, json: async () => profile } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => events } as Response);
+
+    await expect(getAgentConnectorProfile("session_student-1")).resolves.toEqual(profile);
+    await expect(getAgentEvents("day-1", "session_student-1")).resolves.toEqual(events);
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:3001/agent-connectors/me",
+      expect.objectContaining({
+        cache: "no-store",
+        headers: { Authorization: "Bearer session_student-1" }
+      })
+    );
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:3001/agent-connectors/events?dayId=day-1",
+      expect.objectContaining({
+        cache: "no-store",
+        headers: { Authorization: "Bearer session_student-1" }
+      })
+    );
   });
 
   it("requests the guild list without cache", async () => {
@@ -92,9 +250,11 @@ describe("api client", () => {
           submissionId: "submission-1",
           studentName: "Lin",
           guildName: "Morning Forge",
+          reviewStatus: "teacher_decided",
           suggestedScore: 85,
           finalScore: 90,
           decision: "adjust",
+          isPendingTeacherDecision: false,
           rationale: "Need tighter artifact evidence before final approval.",
           dayLabel: "Day 2",
           submittedAt: "2026-06-29T09:00:00.000Z"
@@ -145,6 +305,53 @@ describe("api client", () => {
       "http://localhost:3001/chat?studentId=student-1",
       {
         cache: "no-store"
+      }
+    );
+  });
+
+  it("requests a room-scoped chat payload without cache", async () => {
+    const mockPayload = {
+      roomId: "room-chat-student-1",
+      viewerRole: "guest",
+      studentId: "student-1",
+      studentName: "Lin",
+      agentLabel: "Claude Code",
+      sessionStatus: "active",
+      sessionSummary: "最近一次对话聚焦 README 打磨与截图整理。",
+      latestSubmission: {
+        id: "submission-1",
+        statusLabel: "待老师审核",
+        submittedAt: "2026-06-29T10:00:00.000Z",
+        dayLabel: "Day 1"
+      },
+      collaborationGuests: [],
+      messages: [
+        {
+          id: "message-1",
+          roomId: "room-chat-student-1",
+          authorId: "student-1",
+          authorName: "Lin",
+          body: "欢迎进来一起看这次修改记录。",
+          createdAt: "2026-06-29T10:05:00.000Z"
+        }
+      ]
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(getChatRoom("room-chat-student-1", "session_student-2")).resolves.toEqual(
+      mockPayload
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/chat?roomId=room-chat-student-1",
+      {
+        cache: "no-store",
+        headers: {
+          Authorization: "Bearer session_student-2"
+        }
       }
     );
   });
@@ -270,13 +477,14 @@ describe("api client", () => {
         selfReflection: "I learned to make the agent output easier to verify today.",
         agentEvaluationHints: ["submitted from chat"],
         timestamp: "2026-06-29T12:00:00.000Z"
-      })
+      }, "session_student-1")
     ).resolves.toEqual(mockPayload);
 
     expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/submissions", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: "Bearer session_student-1"
       },
       body: JSON.stringify({
         studentId: "student-1",
@@ -297,6 +505,44 @@ describe("api client", () => {
         selfReflection: "I learned to make the agent output easier to verify today.",
         agentEvaluationHints: ["submitted from chat"],
         timestamp: "2026-06-29T12:00:00.000Z"
+      })
+    });
+  });
+
+  it("posts a room chat message to the write api", async () => {
+    const mockPayload = {
+      id: "message-1",
+      roomId: "room-chat-student-1",
+      authorId: "student-1",
+      authorName: "Lin",
+      body: "我已经把验证步骤写进 README 了。",
+      createdAt: "2026-06-29T11:30:00.000Z"
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(
+      createChatMessage(
+        {
+          roomId: "room-chat-student-1",
+          body: "我已经把验证步骤写进 README 了。"
+        },
+        "session_student-1"
+      )
+    ).resolves.toEqual(mockPayload);
+
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/chat/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer session_student-1"
+      },
+      body: JSON.stringify({
+        roomId: "room-chat-student-1",
+        body: "我已经把验证步骤写进 README 了。"
       })
     });
   });
@@ -463,6 +709,21 @@ describe("api client", () => {
         sessionStatus: "failed",
         latestSubmission: null,
         collaborationGuests: []
+      }
+    });
+  });
+
+  it("returns fallback data when the room chat api is unreachable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getChatRoomSafe("room-chat-student-1")).resolves.toMatchObject({
+      degraded: true,
+      data: {
+        roomId: "room-chat-student-1",
+        viewerRole: "owner",
+        studentId: "student-self",
+        studentName: "当前学生",
+        messages: []
       }
     });
   });
