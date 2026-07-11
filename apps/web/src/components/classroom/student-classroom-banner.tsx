@@ -78,8 +78,12 @@ export function StudentClassroomBanner({
     return Math.max(0, (stage.remainingSeconds ?? stage.durationSeconds + stage.extensionSeconds) - elapsed);
   }, [stage]);
 
-  const activeHelp = localSnapshot.helpRequests.find(
-    (request) => request.studentId === studentId && (request.status === "open" || request.status === "claimed")
+  const studentHelpRequests = localSnapshot.helpRequests
+    .filter((request) => request.studentId === studentId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const latestHelp = studentHelpRequests[0];
+  const activeHelp = studentHelpRequests.find(
+    (request) => request.status === "open" || request.status === "claimed"
   );
 
   async function submitHelp(event: React.FormEvent<HTMLFormElement>) {
@@ -116,7 +120,9 @@ export function StudentClassroomBanner({
       <div style={{ marginTop: 8, color: "#f8fafc" }}>
         {stage?.status === "running" ? `剩余 ${formatRemaining(remaining)}` : stage?.status === "paused" ? "已暂停" : stage ? "尚未开始" : "当前没有活动阶段"}
       </div>
-      {activeHelp ? <p role="status" style={{ color: "#fbbf24", margin: "8px 0 0" }}>求助状态：{activeHelp.status === "claimed" ? "老师处理中" : "等待老师回应"}</p> : null}
+      {latestHelp ? <p role="status" style={{ color: latestHelp.status === "resolved" ? "#86efac" : "#fbbf24", margin: "8px 0 0" }}>
+        求助状态：{latestHelp.status === "resolved" ? `已解决${latestHelp.resolutionNote ? `（${latestHelp.resolutionNote}）` : ""}` : latestHelp.status === "claimed" ? "老师处理中" : latestHelp.status === "open" ? "等待老师回应" : "已取消"}
+      </p> : activeHelp ? <p role="status" style={{ color: "#fbbf24", margin: "8px 0 0" }}>求助状态：{activeHelp.status === "claimed" ? "老师处理中" : "等待老师回应"}</p> : null}
       {feedback ? <p role="status" style={{ color: feedback.includes("失败") ? "#fca5a5" : "#86efac", margin: "8px 0 0" }}>{feedback}</p> : null}
       <button type="button" onClick={() => setShowForm((value) => !value)} style={buttonStyle}>{showForm ? "收起求助" : "举手求助"}</button>
       {showForm ? (

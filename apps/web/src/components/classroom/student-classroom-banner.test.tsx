@@ -50,4 +50,11 @@ describe("StudentClassroomBanner", () => {
     fireEvent.click(screen.getByRole("button", { name: "提交求助" }));
     await waitFor(() => expect(screen.getByText("求助提交失败，请稍后重试。")).toBeInTheDocument());
   });
+
+  it("shows the latest resolved help request and its resolution note", () => {
+    render(<StudentClassroomBanner snapshot={{ ...snapshot, helpRequests: [{
+      id: "help-1", sessionId: "class-1", studentId: "student-1", category: "question", message: "卡住了", status: "resolved", assigneeId: "teacher-1", resolutionNote: "请先运行测试", createdAt: "2026-07-12T09:00:00.000Z", claimedAt: "2026-07-12T09:01:00.000Z", resolvedAt: "2026-07-12T09:03:00.000Z", version: 2
+    }] }} token="session_student-1" studentId="student-1" />);
+    expect(screen.getByText("求助状态：已解决（请先运行测试）")).toBeInTheDocument();
+  });
 });
