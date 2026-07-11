@@ -39,7 +39,8 @@ export function createClassroomSocket({
   onConnectionState?: (state: ClassroomConnectionState) => void;
   initialVersion?: number;
 }): { disconnect: () => void } {
-  let currentVersion = initialVersion;
+  let stageVersion = initialVersion;
+  let helpVersion = initialVersion;
   let socket: Socket | undefined;
   onConnectionState?.("connecting");
 
@@ -58,13 +59,13 @@ export function createClassroomSocket({
     socket.on("disconnect", () => onConnectionState?.("disconnected"));
     socket.on("connect_error", () => onConnectionState?.("disconnected"));
     socket.on("classroom:stage:update", (payload: ClassroomStageUpdatePayload) => {
-      if (!payload || payload.sessionId !== sessionId || payload.version < currentVersion) return;
-      currentVersion = payload.version;
+      if (!payload || payload.sessionId !== sessionId || payload.version < stageVersion) return;
+      stageVersion = payload.version;
       onStageUpdate?.(payload);
     });
     socket.on("classroom:help:update", (payload: ClassroomHelpUpdatePayload) => {
-      if (!payload || payload.sessionId !== sessionId || payload.version < currentVersion) return;
-      currentVersion = payload.version;
+      if (!payload || payload.sessionId !== sessionId || payload.version < helpVersion) return;
+      helpVersion = payload.version;
       onHelpUpdate?.(payload);
     });
   } catch {
