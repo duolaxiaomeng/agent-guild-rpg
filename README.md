@@ -70,3 +70,11 @@ pnpm dev:web
 ```bash
 pnpm --filter web exec playwright test tests/e2e/smoke.spec.ts
 ```
+
+课堂指挥台闭环使用 `apps/api/prisma/seed.ts` 中的教师、学生和助教快照；课堂阶段/求助流程不依赖 Redis。运行课堂浏览器验收时，API 需监听 `3001` 并允许 `http://localhost:3100` 的跨域请求，Playwright 会使用独立的 Web `3100` 端口：
+
+```bash
+pnpm --filter contracts test
+pnpm --filter api exec vitest run test/contracts/database-shape.spec.ts test/classroom-flow.spec.ts test/realtime.spec.ts
+pnpm --filter web exec playwright test tests/e2e/classroom-flow.spec.ts
+```
