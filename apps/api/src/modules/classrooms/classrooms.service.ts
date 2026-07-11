@@ -8,6 +8,8 @@ import {
 } from "@nestjs/common";
 import {
   ClassroomEventType,
+  HelpRequestCategory,
+  HelpRequestStatus,
   ClassroomSessionStatus,
   ClassroomStageStatus,
   Prisma,
@@ -19,6 +21,7 @@ import type {
   ClassroomViewer
 } from "contracts";
 import { PrismaService } from "../../prisma/prisma.service";
+import { RoomsService } from "../rooms/rooms.service";
 
 export type ClassroomActor = {
   id: string;
@@ -42,6 +45,12 @@ export type CreateClassroomSessionInput = {
     description?: string;
     durationSeconds: number;
   }>;
+};
+
+export type CreateHelpRequestInput = {
+  sessionId: string;
+  category: "blocked" | "environment" | "question" | "review" | "other";
+  message: string;
 };
 
 type ClassroomStageRecord = Prisma.ClassroomStageGetPayload<{}>;
@@ -79,7 +88,10 @@ export function getRemainingSeconds(
 
 @Injectable()
 export class ClassroomsService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RoomsService) private readonly roomsService: RoomsService
+  ) {}
 
   async createSession(
     actor: ClassroomActor,
@@ -170,20 +182,9 @@ export class ClassroomsService {
         ? this.mapStage(currentStageRecord, now)
         : null,
       stages,
-      helpRequests: session.helpRequests.map((help) => ({
-        id: help.id,
-        sessionId: help.sessionId,
-        studentId: help.studentId,
-        category: help.category,
-        message: help.message,
-        status: help.status,
-        assigneeId: help.assigneeId,
-        resolutionNote: help.resolutionNote,
-        createdAt: help.createdAt.toISOString(),
-        claimedAt: help.claimedAt?.toISOString() ?? null,
-        resolvedAt: help.resolvedAt?.toISOString() ?? null,
-        version: help.version
-      })),
+      helpRequests: session.helpRequests
+        .filter((help) => viewer.role !== "student" || help.studentId === actor.id)
+        .map((help) => this.mapHelpRequest(help)),
       viewer,
       serverNow: now.toISOString()
     };
@@ -204,6 +205,235 @@ export class ClassroomsService {
     });
 
     return session ? this.getSnapshot(session.id, actor) : null;
+  }
+
+  async listHelpRequests(sessionId: string, actor: ClassroomActor) {
+    const session = await this.getSessionForHelp(sessionId, actor);
+    const isAssignedAssistant = session.staffAssignments.some(
+      (assignment) => assignment.userId === actor.id && assignment.role === "assistant"
+    );
+    const requests = await this.prisma.helpRequest.findMany({
+      where: {
+        sessionId,
+        ...(actor.role === UserRole.student && !isAssignedAssistant && session.teacherId !== actor.id
+          ? { studentId: actor.id }
+          : {})
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+    });
+
+    return requests.map((request) => this.mapHelpRequest(request));
+  }
+
+  async createHelpRequest(
+    actor: ClassroomActor,
+    input: CreateHelpRequestInput
+  ) {
+    if (actor.role !== UserRole.student) {
+      throw new ForbiddenException("Only students can create help requests");
+    }
+    if (!input.sessionId?.trim() || !input.category || !input.message?.trim()) {
+      throw new UnprocessableEntityException("A help request needs a category and message");
+    }
+    if (input.message.trim().length > 2000) {
+      throw new UnprocessableEntityException("Help message is too long");
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const session = await tx.classroomSession.findUnique({
+        where: { id: input.sessionId },
+        select: { id: true }
+      });
+      if (!session) throw new NotFoundException("Classroom session not found");
+
+      const help = await tx.helpRequest.create({
+        data: {
+          sessionId: input.sessionId,
+          studentId: actor.id,
+          category: input.category,
+          message: input.message.trim()
+        }
+      });
+      await tx.classroomEvent.create({
+        data: {
+          sessionId: input.sessionId,
+          actorId: actor.id,
+          eventType: "help_created",
+          targetId: help.id,
+          payload: {
+            category: input.category,
+            message: input.message.trim()
+          } as Prisma.InputJsonValue
+        }
+      });
+      return help;
+    });
+
+    return this.mapHelpRequest(created);
+  }
+
+  async claimHelpRequest(
+    helpRequestId: string,
+    expectedVersion: number,
+    actor: ClassroomActor
+  ) {
+    this.assertValidHelpVersion(expectedVersion);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const help = await tx.helpRequest.findUnique({
+        where: { id: helpRequestId },
+        include: { session: { include: { staffAssignments: true } } }
+      });
+      if (!help) throw new NotFoundException("Help request not found");
+      this.assertCanHandleHelp(help.session, actor);
+      if (help.version !== expectedVersion || help.status !== "open") {
+        throw new ConflictException("Help request is stale or already claimed");
+      }
+
+      const claimedAt = new Date();
+      const updated = await tx.helpRequest.updateMany({
+        where: { id: help.id, status: "open", version: expectedVersion },
+        data: {
+          status: "claimed",
+          assigneeId: actor.id,
+          claimedAt,
+          version: { increment: 1 }
+        }
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException("Help request is stale or already claimed");
+      }
+
+      await tx.classroomEvent.create({
+        data: {
+          sessionId: help.sessionId,
+          actorId: actor.id,
+          eventType: "help_claimed",
+          targetId: help.id,
+          payload: { expectedVersion } as Prisma.InputJsonValue
+        }
+      });
+
+      return tx.helpRequest.findUniqueOrThrow({ where: { id: help.id } });
+    });
+
+    // The room grant is deliberately created through RoomsService so that
+    // assistants enter the student's room through the existing access path.
+    // A teacher may grant directly; an assigned assistant receives a support
+    // grant through the dedicated service helper.
+    try {
+      await this.roomsService.createSupportGrant(
+        `room-chat-${result.studentId}`,
+        actor.id,
+        actor.role,
+        2
+      );
+    } catch {
+      // Claim state is the classroom truth. A missing room should not roll it
+      // back; the caller can still resolve the request from the queue.
+    }
+
+    return this.mapHelpRequest(result);
+  }
+
+  async resolveHelpRequest(
+    helpRequestId: string,
+    resolutionNote: string,
+    expectedVersion: number,
+    actor: ClassroomActor
+  ) {
+    this.assertValidHelpVersion(expectedVersion);
+    if (!resolutionNote?.trim() || resolutionNote.trim().length > 2000) {
+      throw new UnprocessableEntityException("A resolution note is required");
+    }
+
+    const resolved = await this.prisma.$transaction(async (tx) => {
+      const help = await tx.helpRequest.findUnique({
+        where: { id: helpRequestId },
+        include: { session: { include: { staffAssignments: true } } }
+      });
+      if (!help) throw new NotFoundException("Help request not found");
+      this.assertCanHandleHelp(help.session, actor);
+      if (help.status !== "claimed" || help.version !== expectedVersion) {
+        throw new ConflictException("Only the current claimed help request can be resolved");
+      }
+      if (help.assigneeId !== actor.id && help.session.teacherId !== actor.id) {
+        throw new ForbiddenException("Only the assignee or teacher can resolve help");
+      }
+
+      const updated = await tx.helpRequest.updateMany({
+        where: { id: help.id, status: "claimed", version: expectedVersion },
+        data: {
+          status: "resolved",
+          resolutionNote: resolutionNote.trim(),
+          resolvedAt: new Date(),
+          version: { increment: 1 }
+        }
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException("Help request is stale or no longer claimable");
+      }
+      await tx.classroomEvent.create({
+        data: {
+          sessionId: help.sessionId,
+          actorId: actor.id,
+          eventType: "help_resolved",
+          targetId: help.id,
+          payload: {
+            expectedVersion,
+            resolutionNote: resolutionNote.trim()
+          } as Prisma.InputJsonValue
+        }
+      });
+      return tx.helpRequest.findUniqueOrThrow({ where: { id: help.id } });
+    });
+
+    return this.mapHelpRequest(resolved);
+  }
+
+  async cancelHelpRequest(
+    helpRequestId: string,
+    expectedVersion: number,
+    actor: ClassroomActor
+  ) {
+    this.assertValidHelpVersion(expectedVersion);
+    if (actor.role !== UserRole.student) {
+      throw new ForbiddenException("Only the requesting student can cancel help");
+    }
+
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const help = await tx.helpRequest.findUnique({
+        where: { id: helpRequestId }
+      });
+      if (!help) throw new NotFoundException("Help request not found");
+      if (help.studentId !== actor.id) {
+        throw new ForbiddenException("Students can only cancel their own help");
+      }
+      if (help.status !== "open" || help.version !== expectedVersion) {
+        throw new ConflictException("Only an open help request can be cancelled");
+      }
+      const updated = await tx.helpRequest.updateMany({
+        where: { id: help.id, studentId: actor.id, status: "open", version: expectedVersion },
+        data: {
+          status: "cancelled",
+          version: { increment: 1 }
+        }
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException("Help request is stale or already cancelled");
+      }
+      await tx.classroomEvent.create({
+        data: {
+          sessionId: help.sessionId,
+          actorId: actor.id,
+          eventType: "help_cancelled",
+          targetId: help.id,
+          payload: { expectedVersion } as Prisma.InputJsonValue
+        }
+      });
+      return tx.helpRequest.findUniqueOrThrow({ where: { id: help.id } });
+    });
+
+    return this.mapHelpRequest(cancelled);
   }
 
   async startStage(
@@ -443,6 +673,86 @@ export class ClassroomsService {
       accumulatedPauseSeconds: stage.accumulatedPauseSeconds,
       remainingSeconds: getRemainingSeconds(stage, now)
     };
+  }
+
+  private mapHelpRequest(help: {
+    id: string;
+    sessionId: string;
+    studentId: string;
+    category: HelpRequestCategory;
+    message: string;
+    status: HelpRequestStatus;
+    assigneeId: string | null;
+    resolutionNote: string | null;
+    createdAt: Date;
+    claimedAt: Date | null;
+    resolvedAt: Date | null;
+    version: number;
+  }) {
+    return {
+      id: help.id,
+      sessionId: help.sessionId,
+      studentId: help.studentId,
+      category: help.category,
+      message: help.message,
+      status: help.status,
+      assigneeId: help.assigneeId,
+      resolutionNote: help.resolutionNote,
+      createdAt: help.createdAt.toISOString(),
+      claimedAt: help.claimedAt?.toISOString() ?? null,
+      resolvedAt: help.resolvedAt?.toISOString() ?? null,
+      version: help.version
+    };
+  }
+
+  private async getSessionForHelp(sessionId: string, actor: ClassroomActor) {
+    const session = await this.prisma.classroomSession.findUnique({
+      where: { id: sessionId },
+      include: { staffAssignments: true }
+    });
+    if (!session) throw new NotFoundException("Classroom session not found");
+    if (
+      actor.role === UserRole.teacher &&
+      session.teacherId !== actor.id
+    ) {
+      throw new ForbiddenException("Only the classroom teacher can view help");
+    }
+    if (
+      actor.role === UserRole.student &&
+      session.teacherId !== actor.id &&
+      !session.staffAssignments.some((assignment) => assignment.userId === actor.id)
+    ) {
+      // Students are allowed to see their own requests, but never another
+      // class's help queue. The caller's studentId filter keeps the response
+      // private while preserving the student-facing status bar.
+      return session;
+    }
+    return session;
+  }
+
+  private assertCanHandleHelp(
+    session: {
+      teacherId: string;
+      staffAssignments: Array<{ userId: string; role: string }>;
+    },
+    actor: ClassroomActor
+  ) {
+    if (session.teacherId === actor.id) return;
+    if (
+      actor.role === UserRole.student &&
+      session.staffAssignments.some(
+        (assignment) => assignment.userId === actor.id && assignment.role === "assistant"
+      )
+    ) {
+      return;
+    }
+    throw new ForbiddenException("Only the classroom teacher or assigned assistant can handle help");
+  }
+
+  private assertValidHelpVersion(expectedVersion: number) {
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      throw new UnprocessableEntityException("expectedVersion must be a non-negative integer");
+    }
   }
 
   private viewerFor(

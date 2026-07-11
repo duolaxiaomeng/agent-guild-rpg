@@ -246,4 +246,143 @@ describe("classroom control flow", () => {
       });
     expect(invalid.status).toBe(422);
   });
+
+  it("lets a student create and cancel their own help request while hiding other students' requests", async () => {
+    const created = await request(app.getHttpServer())
+      .post("/classrooms/help-requests")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send({
+        sessionId: "classroom-session-1",
+        category: "blocked",
+        message: "工具调用卡住了"
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      sessionId: "classroom-session-1",
+      studentId: "student-1",
+      status: "open",
+      version: 0
+    });
+
+    const otherStudentToken = await loginAs("mo@academy.test", "student-pass-456");
+    const hiddenFromOtherStudent = await request(app.getHttpServer())
+      .get("/classrooms/sessions/classroom-session-1/help-requests")
+      .set("Authorization", `Bearer ${otherStudentToken}`);
+    expect(hiddenFromOtherStudent.status).toBe(200);
+    expect(hiddenFromOtherStudent.body).toEqual([]);
+
+    const hiddenFromSnapshot = await request(app.getHttpServer())
+      .get("/classrooms/sessions/classroom-session-1")
+      .set("Authorization", `Bearer ${otherStudentToken}`);
+    expect(hiddenFromSnapshot.status).toBe(200);
+    expect(hiddenFromSnapshot.body.helpRequests).toEqual([]);
+
+    const cancelled = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/cancel`)
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send({ expectedVersion: created.body.version });
+    expect(cancelled.status).toBe(201);
+    expect(cancelled.body.status).toBe("cancelled");
+
+    const event = await prisma.classroomEvent.findFirstOrThrow({
+      where: { targetId: created.body.id, eventType: "help_cancelled" }
+    });
+    expect(event.actorId).toBe("student-1");
+  });
+
+  it("lets an assigned student assistant view, claim, and resolve help", async () => {
+    const created = await request(app.getHttpServer())
+      .post("/classrooms/help-requests")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send({
+        sessionId: "classroom-session-1",
+        category: "question",
+        message: "如何验证 Agent 输出？"
+      });
+    expect(created.status).toBe(201);
+
+    const listed = await request(app.getHttpServer())
+      .get("/classrooms/sessions/classroom-session-1/help-requests")
+      .set("Authorization", `Bearer ${assistantToken}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toHaveLength(1);
+    expect(listed.body[0]).toMatchObject({ id: created.body.id, studentId: "student-1" });
+
+    const claimed = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/claim`)
+      .set("Authorization", `Bearer ${assistantToken}`)
+      .send({ expectedVersion: created.body.version });
+    expect(claimed.status).toBe(201);
+    expect(claimed.body).toMatchObject({ status: "claimed", assigneeId: "student-3", version: 1 });
+
+    const resolved = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/resolve`)
+      .set("Authorization", `Bearer ${assistantToken}`)
+      .send({ expectedVersion: claimed.body.version, resolutionNote: "已一起检查工具参数并恢复运行。" });
+    expect(resolved.status).toBe(201);
+    expect(resolved.body).toMatchObject({ status: "resolved", assigneeId: "student-3", version: 2 });
+
+    const events = await prisma.classroomEvent.findMany({
+      where: { targetId: created.body.id },
+      orderBy: { createdAt: "asc" }
+    });
+    expect(events.map((event) => event.eventType)).toEqual([
+      "help_created",
+      "help_claimed",
+      "help_resolved"
+    ]);
+  });
+
+  it("allows the teacher to process help and rejects duplicate or unassigned claims", async () => {
+    const created = await request(app.getHttpServer())
+      .post("/classrooms/help-requests")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send({
+        sessionId: "classroom-session-1",
+        category: "environment",
+        message: "本地环境没有加载依赖"
+      });
+    expect(created.status).toBe(201);
+
+    const unassigned = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/claim`)
+      .set("Authorization", `Bearer ${await loginAs("mo@academy.test", "student-pass-456")}`)
+      .send({ expectedVersion: created.body.version });
+    expect(unassigned.status).toBe(403);
+
+    const claimed = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/claim`)
+      .set("Authorization", `Bearer ${teacherToken}`)
+      .send({ expectedVersion: created.body.version });
+    expect(claimed.status).toBe(201);
+
+    const duplicate = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/claim`)
+      .set("Authorization", `Bearer ${assistantToken}`)
+      .send({ expectedVersion: created.body.version });
+    expect(duplicate.status).toBe(409);
+
+    const resolved = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/resolve`)
+      .set("Authorization", `Bearer ${teacherToken}`)
+      .send({ expectedVersion: claimed.body.version, resolutionNote: "已补发依赖安装说明。" });
+    expect(resolved.status).toBe(201);
+    expect(resolved.body.status).toBe("resolved");
+  });
+
+  it("rejects a student who is not the request owner from cancelling or resolving help", async () => {
+    const created = await request(app.getHttpServer())
+      .post("/classrooms/help-requests")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send({ sessionId: "classroom-session-1", category: "review", message: "请帮忙看一下结果" });
+    expect(created.status).toBe(201);
+
+    const otherStudentToken = await loginAs("mo@academy.test", "student-pass-456");
+    const cancelled = await request(app.getHttpServer())
+      .post(`/classrooms/help-requests/${created.body.id}/cancel`)
+      .set("Authorization", `Bearer ${otherStudentToken}`)
+      .send({ expectedVersion: created.body.version });
+    expect(cancelled.status).toBe(403);
+  });
 });
