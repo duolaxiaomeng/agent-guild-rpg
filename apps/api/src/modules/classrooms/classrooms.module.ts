@@ -5,9 +5,10 @@ import { AuthService } from "../auth/auth.service";
 import { ClassroomsController } from "./classrooms.controller";
 import { ClassroomsService } from "./classrooms.service";
 import { RoomsService } from "../rooms/rooms.service";
+import { RealtimeModule } from "../realtime/realtime.module";
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, RealtimeModule],
   controllers: [ClassroomsController],
   providers: [ClassroomsService, AuthService, AuthGuard, RoomsService],
   exports: [ClassroomsService]

@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Logger,
   UnprocessableEntityException
 } from "@nestjs/common";
 import {
@@ -22,6 +23,7 @@ import type {
 } from "contracts";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RoomsService } from "../rooms/rooms.service";
+import { RealtimeGateway } from "../realtime/realtime.gateway";
 
 export type ClassroomActor = {
   id: string;
@@ -88,9 +90,12 @@ export function getRemainingSeconds(
 
 @Injectable()
 export class ClassroomsService {
+  private readonly logger = new Logger(ClassroomsService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(RoomsService) private readonly roomsService: RoomsService
+    @Inject(RoomsService) private readonly roomsService: RoomsService,
+    @Inject(RealtimeGateway) private readonly realtimeGateway: RealtimeGateway
   ) {}
 
   async createSession(
@@ -269,7 +274,9 @@ export class ClassroomsService {
       return help;
     });
 
-    return this.mapHelpRequest(created);
+    const mapped = this.mapHelpRequest(created);
+    this.broadcastHelpUpdate(mapped);
+    return mapped;
   }
 
   async claimHelpRequest(
@@ -332,7 +339,9 @@ export class ClassroomsService {
       // back; the caller can still resolve the request from the queue.
     }
 
-    return this.mapHelpRequest(result);
+    const mapped = this.mapHelpRequest(result);
+    this.broadcastHelpUpdate(mapped);
+    return mapped;
   }
 
   async resolveHelpRequest(
@@ -387,7 +396,9 @@ export class ClassroomsService {
       return tx.helpRequest.findUniqueOrThrow({ where: { id: help.id } });
     });
 
-    return this.mapHelpRequest(resolved);
+    const mapped = this.mapHelpRequest(resolved);
+    this.broadcastHelpUpdate(mapped);
+    return mapped;
   }
 
   async cancelHelpRequest(
@@ -433,7 +444,9 @@ export class ClassroomsService {
       return tx.helpRequest.findUniqueOrThrow({ where: { id: help.id } });
     });
 
-    return this.mapHelpRequest(cancelled);
+    const mapped = this.mapHelpRequest(cancelled);
+    this.broadcastHelpUpdate(mapped);
+    return mapped;
   }
 
   async startStage(
@@ -655,7 +668,40 @@ export class ClassroomsService {
       return session.id;
     });
 
-    return this.getSnapshot(sessionId, actor);
+    const snapshot = await this.getSnapshot(sessionId, actor);
+    this.broadcastStageUpdate(snapshot);
+    return snapshot;
+  }
+
+  private broadcastStageUpdate(snapshot: ClassroomSnapshot) {
+    try {
+      this.realtimeGateway.broadcastClassroomStageUpdate({
+        sessionId: snapshot.session.id,
+        version: snapshot.session.version,
+        serverNow: snapshot.serverNow,
+        status: snapshot.session.status,
+        currentStage: snapshot.currentStage
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Classroom stage broadcast failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private broadcastHelpUpdate(helpRequest: ReturnType<ClassroomsService["mapHelpRequest"]>) {
+    try {
+      this.realtimeGateway.broadcastClassroomHelpUpdate({
+        sessionId: helpRequest.sessionId,
+        version: helpRequest.version,
+        serverNow: new Date().toISOString(),
+        helpRequest
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Classroom help broadcast failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private mapStage(stage: ClassroomStageRecord, now: Date): ClassroomStageContract {
