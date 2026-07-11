@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ClassroomControlPanel } from "./classroom-control-panel";
-import { pauseClassroomStage } from "../../lib/api-client";
+import { pauseClassroomStage, startClassroomStage } from "../../lib/api-client";
 
 vi.mock("../../lib/api-client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/api-client")>("../../lib/api-client");
-  return { ...actual, pauseClassroomStage: vi.fn() };
+  return { ...actual, pauseClassroomStage: vi.fn(), startClassroomStage: vi.fn() };
 });
 
 const snapshot = {
@@ -38,5 +38,15 @@ describe("ClassroomControlPanel", () => {
     render(<ClassroomControlPanel snapshot={snapshot} token="session_teacher-1" />);
     fireEvent.click(screen.getByRole("button", { name: "暂停" }));
     await waitFor(() => expect(screen.getByText("课堂状态已更新，请刷新课堂快照")).toBeInTheDocument());
+  });
+
+  it("shows the first draft stage and starts it when currentStage is empty", async () => {
+    const draftStage = { ...snapshot.currentStage, id: "stage-draft", title: "讲解", status: "draft" as const, version: 7, startedAt: null, remainingSeconds: null };
+    vi.mocked(startClassroomStage).mockResolvedValue({ ...snapshot, currentStage: { ...draftStage, status: "running", startedAt: "2026-07-12T09:00:00.000Z", remainingSeconds: 1800 } });
+    render(<ClassroomControlPanel snapshot={{ ...snapshot, currentStage: null, stages: [draftStage] }} token="session_teacher-1" />);
+
+    expect(screen.getByText("讲解")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "开始" }));
+    await waitFor(() => expect(startClassroomStage).toHaveBeenCalledWith("stage-draft", 7, "session_teacher-1"));
   });
 });

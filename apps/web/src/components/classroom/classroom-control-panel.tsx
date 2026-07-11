@@ -28,7 +28,10 @@ export function ClassroomControlPanel({ snapshot, token }: { snapshot: Classroom
     return () => window.clearInterval(timer);
   }, []);
 
-  const stage = localSnapshot.currentStage;
+  // A newly seeded/live classroom may not have currentStageId until the
+  // teacher starts its first draft stage. Keep that first actionable stage
+  // visible so the control panel can bootstrap the session.
+  const stage = localSnapshot.currentStage ?? localSnapshot.stages.find((candidate) => candidate.status === "draft") ?? null;
   const remaining = useMemo(() => {
     if (!stage) return null;
     if (stage.status !== "running" || !stage.startedAt) return stage.remainingSeconds ?? null;
