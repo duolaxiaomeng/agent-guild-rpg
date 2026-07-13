@@ -1,0 +1,70 @@
+:root { --bg: #070d18; --panel: #101b2c; --ink: #eaf2ff; --muted: #8ea2bd; --line: rgba(175, 205, 238, .16); --blue: #69adff; --green: #78d9a9; --amber: #f3bd68; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 1000px; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "PingFang SC", sans-serif; }
+button { font: inherit; }
+.prototype { min-height: 100vh; background: radial-gradient(circle at 43% -18%, rgba(62,112,170,.25), transparent 45%), linear-gradient(135deg, #070d18, #0b1727 62%, #08101c); }.topbar { display: flex; justify-content: space-between; align-items: center; height: 68px; padding: 0 30px; border-bottom: 1px solid var(--line); background: rgba(6, 13, 24, .9); }.brand { display: flex; align-items: center; gap: 9px; }.brand > span { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid #86b6e6; border-radius: 7px; color: #dff0ff; font: 700 10px monospace; }.brand small, .brand strong { display: block; }.brand small { color: #7395bd; font: 9px monospace; letter-spacing: .14em; }.brand strong { margin-top: 4px; font-size: 14px; }.top-actions { display: flex; align-items: center; gap: 12px; color: var(--muted); font: 11px monospace; }.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 11px var(--green); }.top-actions button { border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; background: rgba(255,255,255,.04); color: #bfd1e8; cursor: pointer; font: 11px sans-serif; }
+.workspace { display: grid; grid-template-columns: minmax(650px, 1fr) 252px; gap: 18px; max-width: 1500px; margin: 0 auto; padding: 27px 30px 40px; }.scene-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 13px; }.scene-heading small { color: #7897bc; font: 9px monospace; letter-spacing: .16em; }.scene-heading h1 { margin: 5px 0 0; font-size: 28px; letter-spacing: -.06em; }.scene-heading em { color: var(--amber); font-size: 12px; font-style: normal; letter-spacing: 0; }.scene-meta { display: flex; gap: 10px; color: var(--green); font: 11px monospace; }.scene-frame { padding: 8px; border: 1px solid rgba(164,197,234,.25); border-radius: 12px; background: #162437; box-shadow: 0 26px 70px rgba(0,0,0,.3); }.scene-viewport { position: relative; overflow: hidden; aspect-ratio: 1280 / 900; border: 3px solid #40536a; border-radius: 6px; background: #101820; }.scene-viewport img { display: block; width: 100%; height: 100%; object-fit: cover; }.observer-badge { position: absolute; top: 10px; right: 12px; padding: 7px 9px; border: 1px solid rgba(245,245,245,.45); border-radius: 5px; background: rgba(7, 18, 31, .78); color: #e7f1ff; font: 10px monospace; box-shadow: 0 4px 12px rgba(0,0,0,.25); }.observer-badge i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }.scene-caption { display: flex; justify-content: space-between; padding: 8px 3px 1px; color: #7187a4; font: 9px monospace; }.scene-caption span:last-child { color: #b0c5df; }.zone-tabs { display: flex; gap: 7px; margin-top: 14px; }.zone-tabs button { border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; background: rgba(255,255,255,.04); color: #b5c9e2; cursor: pointer; font-size: 11px; }.zone-tabs button.active, .zone-tabs button:hover { border-color: rgba(105,173,255,.55); background: rgba(66,127,190,.18); color: #eff7ff; }.real-ui-note { display: flex; gap: 10px; margin-top: 13px; padding: 10px 12px; border-left: 2px solid var(--amber); background: rgba(243,189,104,.07); color: #8f9db0; font-size: 10px; line-height: 1.6; }.real-ui-note b { flex: 0 0 auto; color: #dfb776; font-weight: 600; }
+.hotspot { position: absolute; z-index: 3; width: 7%; height: 13%; border: 1px solid transparent; border-radius: 5px; background: transparent; cursor: pointer; }.hotspot:hover, .hotspot:focus-visible { border-color: #bfe1ff; background: rgba(98,169,255,.2); box-shadow: 0 0 0 3px rgba(98,169,255,.22); outline: none; }.lobby-reception { left: 47%; top: 34%; }.lobby-manager { left: 70%; top: 55%; }.work-browser { left: 16%; top: 29%; }.work-coder { left: 46%; top: 29%; }.work-files { left: 76%; top: 29%; }.work-standby { left: 46%; top: 61%; }.is-hidden { display: none; }.scene-help { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 7px 11px; border-radius: 15px; background: rgba(16,26,38,.82); color: #d8e7f8; font-size: 10px; pointer-events: none; }
+.observer-panel { min-height: 620px; border: 1px solid var(--line); border-radius: 11px; background: linear-gradient(160deg, rgba(16,29,48,.96), rgba(8,16,28,.95)); box-shadow: 0 24px 65px rgba(0,0,0,.22); }.panel-top { display: flex; justify-content: space-between; padding: 16px 17px; border-bottom: 1px solid var(--line); color: #7898bf; font: 9px monospace; letter-spacing: .12em; }.panel-top b { color: var(--green); font-weight: 400; }.empty { display: grid; place-items: center; padding: 62px 27px; text-align: center; }.target { display: grid; place-items: center; width: 55px; height: 55px; margin-bottom: 17px; border: 1px solid #4d6a89; border-radius: 50%; color: #91bde9; font-size: 31px; }.empty h2 { margin: 0 0 10px; font-size: 16px; }.empty p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }.profile { padding: 21px 18px; }.profile-kicker { color: #7699bf; font: 9px monospace; letter-spacing: .14em; }.profile h2 { margin: 10px 0 4px; font-size: 25px; letter-spacing: -.04em; }.profile .role { color: var(--muted); font-size: 11px; }.state { display: flex; justify-content: space-between; margin: 22px 0 18px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; }.state b { color: var(--green); }.facts { display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }.facts li { display: flex; justify-content: space-between; gap: 12px; color: #8a9db7; font-size: 10px; }.facts b { color: #dbe8f7; text-align: right; }.profile-action { width: 100%; margin-top: 23px; padding: 10px; border: 1px solid rgba(105,173,255,.38); border-radius: 6px; background: rgba(105,173,255,.1); color: #abd1fa; cursor: pointer; font-size: 10px; }.profile-note { margin-top: 18px; padding: 10px; border-left: 2px solid var(--amber); background: rgba(243,189,104,.07); color: #a99675; font-size: 10px; line-height: 1.6; }.toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px); padding: 10px 13px; border: 1px solid var(--line); border-radius: 7px; background: #172a43; color: #dcecff; font-size: 11px; opacity: 0; pointer-events: none; transition: .2s ease; }.toast.show { transform: translate(-50%, 0); opacity: 1; }
+@media (max-width: 1100px) { .workspace { grid-template-columns: 1fr; }.observer-panel { min-height: 220px; }.empty { padding: 30px; }.scene-column { min-width: 650px; } }
+
+/* Keep the prototype aligned with the current formal 16:9 capture. */
+.scene-viewport { aspect-ratio: 16 / 9; }
+.scene-viewport img { object-fit: fill; }
+.lobby-reception { left: 40%; top: 39%; }
+.lobby-manager { left: 64%; top: 67%; }
+.work-browser { left: 17%; top: 34%; }
+.work-coder { left: 39%; top: 34%; }
+.work-files { left: 63%; top: 34%; }
+.work-standby { left: 40%; top: 73%; }
+
+/* Teacher Observer Studio: zone-specific hierarchy without covering the world scene. */
+body { min-width: 0; }
+.workspace { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+.scene-viewport { aspect-ratio: 16 / 9; }
+.zone-context { position: absolute; left: 12px; bottom: 12px; z-index: 2; display: grid; gap: 2px; padding: 7px 10px; border-left: 2px solid var(--blue); background: rgba(7, 18, 31, .84); color: #c6d8ec; font: 9px monospace; box-shadow: 0 6px 18px rgba(0,0,0,.24); }
+.zone-context span { color: #8ca7c5; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+.zone-context b { color: #eff7ff; font-weight: 500; }
+#panel-content { min-height: 564px; }
+.zone-panel, .profile { padding: 22px 20px 20px; }
+.zone-panel h2 { margin: 10px 0 7px; font-size: 24px; letter-spacing: -.05em; }
+.zone-summary { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.zone-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 22px 0 18px; }
+.metric-card { min-height: 66px; padding: 9px 7px; border: 1px solid rgba(105,173,255,.2); border-radius: 6px; background: rgba(105,173,255,.07); }
+.metric-card span { display: block; color: #8da4bd; font-size: 9px; line-height: 1.35; }
+.metric-card b { display: block; margin-top: 8px; color: var(--blue); font-size: 15px; font-weight: 600; }
+.metric-card.healthy { border-color: rgba(120,217,169,.22); background: rgba(120,217,169,.07); }.metric-card.healthy b { color: var(--green); }
+.metric-card.pending { border-color: rgba(243,189,104,.24); background: rgba(243,189,104,.07); }.metric-card.pending b { color: var(--amber); }
+.metric-card.risk { border-color: rgba(238,142,158,.26); background: rgba(238,142,158,.07); }.metric-card.risk b { color: #ee8e9e; }
+.zone-sections { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.zone-section { display: flex; justify-content: space-between; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--line); color: #8da2bb; font-size: 10px; }
+.zone-section b { color: #dce9f7; font-weight: 500; text-align: right; }
+.profile { min-height: 564px; }
+.back-link { margin: 0 0 20px; padding: 0; border: 0; background: transparent; color: #8fbbe5; cursor: pointer; font-size: 10px; }
+.back-link:hover { color: #e9f5ff; }
+.profile h2 { margin: 10px 0 4px; }
+.profile-zone { display: block; margin-top: 8px; color: #8ca7c5; font-size: 10px; }
+.profile-action { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.profile-action span { color: var(--green); font-size: 13px; }
+.profile-note { margin-bottom: 0; }
+
+@media (max-width: 1100px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .observer-panel { min-height: 0; }
+  #panel-content { min-height: 0; }
+  .scene-column { min-width: 0; }
+  .scene-heading h1 { font-size: 24px; }
+}
+
+@media (max-width: 640px) {
+  .topbar { height: auto; min-height: 64px; padding: 12px 16px; }
+  .top-actions span, .top-actions button { display: none; }
+  .workspace { padding: 20px 14px 28px; }
+  .scene-heading { align-items: start; gap: 10px; }
+  .scene-heading h1 { font-size: 20px; }
+  .scene-meta { font-size: 9px; }
+  .zone-tabs { overflow-x: auto; padding-bottom: 2px; }
+  .zone-tabs button { flex: 0 0 auto; }
+  .real-ui-note { display: block; }
+  .real-ui-note span { display: block; margin-top: 4px; }
+}

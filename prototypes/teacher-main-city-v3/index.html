@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>教师主城区真实场景观察原型 v3</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="prototype">
+      <header class="topbar">
+        <div class="brand"><span>AG</span><div><small>REAL SCENE / PROTOTYPE 03</small><strong>教师主城区观察</strong></div></div>
+        <div class="top-actions"><i class="live-dot"></i><span>课堂实时</span><button data-action="toast">课堂控制</button><button data-action="toast">返回工作台</button></div>
+      </header>
+
+      <section class="workspace">
+        <div class="scene-column">
+          <div class="scene-heading"><div><small>当前视角</small><h1>主城区 <em>· 教师只读观察</em></h1></div><div class="scene-meta"><span>Day 02</span><span>09:42</span></div></div>
+          <div class="scene-frame">
+            <div class="scene-viewport" id="scene-viewport">
+              <img id="scene-image" src="./reference/office-lobby.png" alt="当前正式主城区场景截图" />
+              <div class="observer-badge"><i></i>教师观察模式</div>
+              <div class="zone-context" id="zone-context"><span>当前区域</span><b>工作室大厅</b></div>
+              <button class="hotspot lobby-reception" data-student="Reception" aria-label="查看前台接待"></button>
+              <button class="hotspot lobby-manager" data-student="Manager" aria-label="查看大厅管理员"></button>
+              <button class="hotspot work-browser is-hidden" data-student="Browser" aria-label="查看 Browser Agent"></button>
+              <button class="hotspot work-coder is-hidden" data-student="Coder" aria-label="查看 Coder Agent"></button>
+              <button class="hotspot work-files is-hidden" data-student="Files" aria-label="查看 Files Agent"></button>
+              <button class="hotspot work-standby is-hidden" data-student="Standby" aria-label="查看 Standby Agent"></button>
+              <div class="scene-help">点击人物查看状态</div>
+            </div>
+            <div class="scene-caption"><span>真实场景参考 · 960 × 540 基准</span><span id="scene-name">工作室大厅</span></div>
+          </div>
+          <nav class="zone-tabs" aria-label="真实场景区域">
+            <button class="active" data-zone="lobby">🏢 工作室大厅</button>
+            <button data-zone="workstations">🖥 工位区</button>
+            <button data-zone="collab">🤝 协作室</button>
+            <button data-zone="review">✅ 评审区</button>
+          </nav>
+          <div class="real-ui-note"><b>这不是重新画的概念图</b><span>底图来自当前正式 Phaser 场景截图；本轮只叠加教师观察交互，用来确认入口、点击反馈和信息层是否合适。</span></div>
+        </div>
+
+        <aside class="observer-panel" id="observer-panel" aria-live="polite">
+          <div class="panel-top"><span>STUDENT OBSERVER</span><b>READ ONLY</b></div>
+          <div id="panel-content"></div>
+        </aside>
+      </section>
+      <div class="toast" id="toast"></div>
+    </main>
+    <script src="./observer-model.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
