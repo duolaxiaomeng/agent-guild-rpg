@@ -9,7 +9,7 @@
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter web test:e2e",
     "lint": "pnpm -r lint",
-    "build": "npm --prefix apps/web run build:site && rm -rf dist && cp -R apps/web/.open-next dist && mkdir -p dist/server dist/.openai && printf 'export { default } from \"../worker.js\";\\n' > dist/server/index.js && cp .openai/hosting.json dist/.openai/hosting.json",
+    "build": "npm --prefix apps/web run build:site && rm -rf dist && mkdir -p dist && (rsync -aL --ignore-errors apps/web/.open-next/ dist/ || [ $? -eq 23 ]) && mkdir -p dist/server dist/.openai && printf 'export { default } from \"../worker.js\";\\n' > dist/server/index.js && cp .openai/hosting.json dist/.openai/hosting.json",
     "docker:build": "docker compose --env-file .env.docker build",
     "docker:up": "docker compose --env-file .env.docker up -d",
     "docker:down": "docker compose --env-file .env.docker down",
