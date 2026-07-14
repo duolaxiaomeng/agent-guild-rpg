@@ -9,6 +9,7 @@
     "start:e2e": "next start --port 3100",
     "e2e:server": "pnpm build && pnpm start:e2e",
     "build": "next build",
+    "build:site": "opennextjs-cloudflare build",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
@@ -21,6 +22,7 @@
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "1.20.1",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -28,6 +30,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "jsdom": "^26.1.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.110.0"
   }
 }
