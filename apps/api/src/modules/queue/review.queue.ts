@@ -1,4 +1,4 @@
-import { Injectable, type OnApplicationShutdown } from "@nestjs/common";
+import { Injectable, Optional, type OnApplicationShutdown } from "@nestjs/common";
 import { Queue, type JobsOptions } from "bullmq";
 
 export type ReviewQueueJob = {
@@ -28,6 +28,10 @@ export function getReviewQueueConnection() {
   };
 }
 
+export function isReviewQueueConfigured() {
+  return Boolean(process.env.REDIS_URL?.trim());
+}
+
 export function createReviewQueue(): ReviewQueuePort {
   return new Queue(REVIEW_QUEUE_NAME, {
     connection: getReviewQueueConnection()
@@ -38,9 +42,12 @@ export function createReviewQueue(): ReviewQueuePort {
 export class ReviewQueueService implements OnApplicationShutdown {
   private queue?: ReviewQueuePort;
 
-  constructor(private readonly queueFactory = createReviewQueue) {}
+  constructor(@Optional() private readonly queueFactory = createReviewQueue) {}
 
   async enqueue(submissionId: string): Promise<ReviewQueueJob> {
+    if (this.queueFactory === createReviewQueue && !isReviewQueueConfigured()) {
+      throw new Error("Review queue is disabled because REDIS_URL is not configured");
+    }
     const queue = this.getQueue();
     const jobId = `review-${submissionId}`;
 

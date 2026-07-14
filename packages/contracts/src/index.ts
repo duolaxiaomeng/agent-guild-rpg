@@ -9,3 +9,6 @@ export * from "./learning-insight";
 export * from "./teaching-agent";
 export * from "./agent-connector";
 export * from "./classroom";
+export * from "./agent-team";
+export * from "./website-lottery";
+export * from "./teacher-task";

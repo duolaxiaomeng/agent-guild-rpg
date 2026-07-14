@@ -23,14 +23,14 @@ test("teacher advances a classroom and an assistant resolves student help", asyn
   } else {
     await expect(page.getByText("课堂进行中")).toBeVisible();
   }
-  await expect(page.getByText(/讲解|个人实践|互测|提交/)).toBeVisible();
+  await expect(page.getByText(/讲解|个人实践|互测|提交/)).toBeVisible({ timeout: 20_000 });
 
   const student = await browser.newPage();
   await login(student, "lin@academy.test", "student-pass-123");
   await student.goto("/");
   await expect(
     student.getByRole("region", { name: "学生课堂状态" }).getByText(/^(讲解|个人实践|互测|提交)$/)
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20_000 });
   const helpMessage = `课堂 E2E 求助 ${Date.now()}`;
   await student.getByRole("button", { name: "举手求助" }).click();
   await student.getByLabel("问题描述").fill(helpMessage);

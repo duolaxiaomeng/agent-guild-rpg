@@ -6,6 +6,7 @@ import { AuthGuard } from "./modules/auth/auth.guard";
 import { AuthService } from "./modules/auth/auth.service";
 import { AgentConnectorsController } from "./modules/agent-connectors/agent-connectors.controller";
 import { AgentConnectorsService } from "./modules/agent-connectors/agent-connectors.service";
+import { AgentOrchestrationModule } from "./modules/agent-orchestration/agent-orchestration.module";
 import { AgentTeamController } from "./modules/agent-team/agent-team.controller";
 import { AgentTeamService } from "./modules/agent-team/agent-team.service";
 import { ChatController } from "./modules/chat/chat.controller";
@@ -21,17 +22,21 @@ import { TeachingAgentController } from "./modules/memory/teaching-agents/teachi
 import { ReviewQueueService } from "./modules/queue/review.queue";
 import { ReviewProcessingService } from "./modules/queue/review.processor";
 import { QuestsController } from "./modules/quests/quests.controller";
+import { QuestsService } from "./modules/quests/quests.service";
 import { RealtimeModule } from "./modules/realtime/realtime.module";
 import { ReviewsController } from "./modules/reviews/reviews.controller";
 import { RoomsController } from "./modules/rooms/rooms.controller";
 import { RoomsService } from "./modules/rooms/rooms.service";
 import { SubmissionsController } from "./modules/submissions/submissions.controller";
 import { WorldController } from "./modules/world/world.controller";
+import { WebsiteLotteryController } from "./modules/website-lottery/website-lottery.controller";
+import { WebsiteLotteryService } from "./modules/website-lottery/website-lottery.service";
 import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
   imports: [
     PrismaModule,
+    AgentOrchestrationModule,
     ClassroomsModule,
     RealtimeModule,
     MemoryModule,
@@ -59,7 +64,8 @@ import { PrismaModule } from "./prisma/prisma.module";
     NpcConversationController,
     AgentAvatarController,
     LearningInsightController,
-    TeachingAgentController
+    TeachingAgentController,
+    WebsiteLotteryController
   ],
   providers: [
     AuthService,
@@ -67,9 +73,11 @@ import { PrismaModule } from "./prisma/prisma.module";
     AgentTeamService,
     AuthGuard,
     ChatService,
+    QuestsService,
     RoomsService,
     ReviewQueueService,
-    ReviewProcessingService
+    ReviewProcessingService,
+    WebsiteLotteryService
   ]
 })
 export class AppModule {}

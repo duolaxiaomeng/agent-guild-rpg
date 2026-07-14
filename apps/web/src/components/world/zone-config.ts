@@ -10,6 +10,14 @@ export type OfficeOutfit =
   | "gray-visitor";
 
 export type OfficeArchetype = "maker" | "operator" | "lead" | "staff" | "visitor";
+export type WorkstationRoleBehavior =
+  | "desk-focus"
+  | "task-runner"
+  | "file-runner"
+  | "review-runner"
+  | "lead-review"
+  | "patrol"
+  | "visitor";
 
 export type NpcDef = {
   id: string;
@@ -22,6 +30,11 @@ export type NpcDef = {
   facing?: "left" | "right" | "up" | "down";
   archetype?: OfficeArchetype;
   outfit?: OfficeOutfit;
+  routeId?: string;
+  homeNodeId?: string;
+  walkSpeed?: number;
+  roleBehavior?: WorkstationRoleBehavior;
+  routeNumber?: 1 | 2 | 3 | 4;
 };
 
 export type AgentDef = {
@@ -39,6 +52,13 @@ export type AgentDef = {
   facing?: "left" | "right" | "up" | "down";
   archetype?: OfficeArchetype;
   outfit?: OfficeOutfit;
+  routeId?: string;
+  homeNodeId?: string;
+  walkSpeed?: number;
+  roleBehavior?: WorkstationRoleBehavior;
+  routeNumber?: 1 | 2 | 3 | 4;
+  /** Optional student ID for matching backend avatar data. */
+  studentId?: string;
 };
 
 export type ZoneDef = {
@@ -146,8 +166,8 @@ export const ZONE_DEFS: ZoneDef[] = [
       { frame: T.SIGNPOST, x: 22, y: 6 },
     ],
     npcs: [
-      { id: "receptionist", name: "前台接待", x: 480, y: 200, tooltip: "欢迎来到工作室！", color: "#3b82f6" },
-      { id: "manager", name: "管理员", x: 700, y: 320, tooltip: "今日公告已更新", color: "#8b5cf6" },
+      { id: "receptionist", name: "前台接待", x: 480, y: 202, tooltip: "欢迎来到 Agent 工作室", color: "#3b82f6", pose: "talking", facing: "down", archetype: "lead", outfit: "navy-lead" },
+      { id: "manager", name: "大厅管理员", x: 620, y: 344, tooltip: "区域导视已经更新", color: "#0f766e", pose: "walking", facing: "right", archetype: "staff", outfit: "teal-staff" },
     ],
     agents: [],
     landmarks: [
@@ -168,16 +188,16 @@ export const ZONE_DEFS: ZoneDef[] = [
     floorStyle: "mixed",
     decorations: [],
     npcs: [
-      { id: "walker-a", name: "巡场同事", x: 744, y: 188, tooltip: "去会议角聊一下", color: "#0f766e", pose: "walking", facing: "left", archetype: "staff", outfit: "teal-staff" },
-      { id: "walker-b", name: "访客", x: 816, y: 214, tooltip: "刚从休息区路过", color: "#334155", pose: "talking", facing: "left", archetype: "visitor", outfit: "gray-visitor" },
+      { id: "walker-a", name: "巡场同事", x: 468, y: 142, tooltip: "去任务板确认一下", color: "#0f766e", pose: "walking", facing: "down", archetype: "staff", outfit: "teal-staff", routeId: "staff-patrol-loop", homeNodeId: "main-corridor-north", walkSpeed: 52, roleBehavior: "patrol", routeNumber: 2 },
+      { id: "walker-b", name: "访客", x: 590, y: 248, tooltip: "刚从休息区路过", color: "#334155", pose: "talking", facing: "left", archetype: "visitor", outfit: "gray-visitor", routeId: "visitor-lounge-loop", homeNodeId: "lounge-entry", walkSpeed: 38, roleBehavior: "visitor", routeNumber: 3 },
     ],
     agents: [
       {
         id: "browser-agent",
         label: "Browser",
         badgeNum: 1,
-        x: 196,
-        y: 246,
+        x: 122,
+        y: 214,
         tooltip: "正在整理方案...",
         shirtColor: "#3b82f6",
         hairColor: "#92400e",
@@ -187,13 +207,19 @@ export const ZONE_DEFS: ZoneDef[] = [
         facing: "right",
         archetype: "maker",
         outfit: "blue-shirt",
+        routeId: "browser-board-loop",
+        homeNodeId: "browser-desk",
+        walkSpeed: 42,
+        roleBehavior: "task-runner",
+        routeNumber: 1,
+        studentId: "student-1",
       },
       {
         id: "coding-agent",
         label: "Coder",
         badgeNum: 2,
-        x: 332,
-        y: 246,
+        x: 316,
+        y: 214,
         tooltip: "正在实现界面...",
         shirtColor: "#22c55e",
         hairColor: "#1e293b",
@@ -203,13 +229,19 @@ export const ZONE_DEFS: ZoneDef[] = [
         facing: "left",
         archetype: "maker",
         outfit: "green-jacket",
+        routeId: "coder-board-loop",
+        homeNodeId: "coder-desk",
+        walkSpeed: 46,
+        roleBehavior: "task-runner",
+        routeNumber: 1,
+        studentId: "student-2",
       },
       {
         id: "files-agent",
         label: "Files",
         badgeNum: 3,
-        x: 196,
-        y: 344,
+        x: 122,
+        y: 348,
         tooltip: "正在整理文件...",
         shirtColor: "#a855f7",
         hairColor: "#78350f",
@@ -219,13 +251,19 @@ export const ZONE_DEFS: ZoneDef[] = [
         facing: "right",
         archetype: "operator",
         outfit: "purple-shirt",
+        routeId: "files-lounge-loop",
+        homeNodeId: "files-desk",
+        walkSpeed: 40,
+        roleBehavior: "file-runner",
+        routeNumber: 3,
+        studentId: "student-3",
       },
       {
         id: "ops-agent",
         label: "Ops",
         badgeNum: 4,
-        x: 332,
-        y: 344,
+        x: 316,
+        y: 348,
         tooltip: "正在关注异常提醒...",
         shirtColor: "#f97316",
         hairColor: "#7c2d12",
@@ -235,13 +273,18 @@ export const ZONE_DEFS: ZoneDef[] = [
         facing: "left",
         archetype: "operator",
         outfit: "orange-jacket",
+        routeId: "ops-review-loop",
+        homeNodeId: "ops-desk",
+        walkSpeed: 44,
+        roleBehavior: "review-runner",
+        routeNumber: 4,
       },
       {
         id: "focus-agent",
         label: "Lead",
         badgeNum: 5,
-        x: 512,
-        y: 426,
+        x: 482,
+        y: 454,
         tooltip: "正在协调任务...",
         shirtColor: "#2563eb",
         hairColor: "#6b21a8",
@@ -250,6 +293,11 @@ export const ZONE_DEFS: ZoneDef[] = [
         facing: "down",
         archetype: "lead",
         outfit: "navy-lead",
+        routeId: "lead-review-loop",
+        homeNodeId: "lead-station",
+        walkSpeed: 36,
+        roleBehavior: "lead-review",
+        routeNumber: 4,
       },
     ],
     landmarks: [
@@ -282,10 +330,14 @@ export const ZONE_DEFS: ZoneDef[] = [
       { frame: T.LANTERN, x: 30, y: 26 },
     ],
     npcs: [
-      { id: "pm", name: "项目经理", x: 300, y: 200, tooltip: "冲刺任务进行中", color: "#ea580c" },
-      { id: "designer", name: "设计师", x: 680, y: 280, tooltip: "原型已更新", color: "#ec4899" },
+      { id: "pm", name: "协作主持", x: 480, y: 194, tooltip: "正在梳理本轮共识", color: "#ea580c", pose: "talking", facing: "down", archetype: "lead", outfit: "orange-jacket" },
+      { id: "designer", name: "设计师", x: 676, y: 392, tooltip: "协作材料已经更新", color: "#ec4899", pose: "standing", facing: "left", archetype: "maker", outfit: "purple-shirt" },
     ],
-    agents: [],
+    agents: [
+      { id: "collab-browser", label: "Browser", badgeNum: 1, x: 400, y: 210, tooltip: "正在整理调研结论", shirtColor: "#3b82f6", hairColor: "#92400e", statusIcon: "search", pose: "focus", facing: "down", archetype: "maker", outfit: "blue-shirt", studentId: "student-1" },
+      { id: "collab-coder", label: "Coder", badgeNum: 2, x: 560, y: 210, tooltip: "正在记录技术方案", shirtColor: "#22c55e", hairColor: "#1e293b", statusIcon: "ok", pose: "typing", facing: "down", archetype: "maker", outfit: "green-jacket", studentId: "student-2" },
+      { id: "collab-files", label: "Files", badgeNum: 3, x: 400, y: 410, tooltip: "正在对照协作文档", shirtColor: "#a855f7", hairColor: "#78350f", statusIcon: "notify", pose: "focus", facing: "up", archetype: "operator", outfit: "purple-shirt", studentId: "student-3" },
+    ],
     landmarks: [
       { label: "协作白板", x: 480, y: 120, color: "#f8fafc" },
       { label: "圆桌会议", x: 480, y: 340, color: "#92400e" },
@@ -318,10 +370,13 @@ export const ZONE_DEFS: ZoneDef[] = [
       { frame: T.SIGNPOST, x: 22, y: 6 },
     ],
     npcs: [
-      { id: "reviewer", name: "评审员", x: 480, y: 180, tooltip: "新提交待审核", color: "#dc2626" },
-      { id: "qa", name: "质检员", x: 250, y: 350, tooltip: "测试报告已生成", color: "#0891b2" },
+      { id: "reviewer", name: "主评审员", x: 480, y: 226, tooltip: "正在准备老师裁定", color: "#dc2626", pose: "standing", facing: "down", archetype: "lead", outfit: "navy-lead" },
+      { id: "qa", name: "质检员", x: 790, y: 404, tooltip: "正在核对证据材料", color: "#0891b2", pose: "standing", facing: "left", archetype: "staff", outfit: "teal-staff" },
     ],
-    agents: [],
+    agents: [
+      { id: "review-candidate-a", label: "A-01", badgeNum: 1, x: 174, y: 248, tooltip: "AI 初评已完成", shirtColor: "#3b82f6", hairColor: "#92400e", statusIcon: "search", pose: "focus", facing: "right", archetype: "maker", outfit: "blue-shirt", studentId: "student-1" },
+      { id: "review-candidate-b", label: "B-02", badgeNum: 2, x: 786, y: 330, tooltip: "等待老师裁定", shirtColor: "#22c55e", hairColor: "#1e293b", statusIcon: "ok", pose: "focus", facing: "left", archetype: "maker", outfit: "green-jacket", studentId: "student-2" },
+    ],
     landmarks: [
       { label: "任务看板", x: 480, y: 120, color: "#92400e" },
       { label: "评审工作台", x: 250, y: 300, color: "#64748b" },

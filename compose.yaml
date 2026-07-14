@@ -1,0 +1,111 @@
+x-api-image: &api-image
+  image: agent-guild-api:local
+  build:
+    context: .
+    dockerfile: apps/api/Dockerfile
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  PORT: 3001
+  DATABASE_URL: file:/data/agent-guild-rpg.db
+  REDIS_URL: redis://redis:6379
+  ALLOWED_ORIGINS: ${PUBLIC_WEB_ORIGIN:-http://localhost:3000}
+  CONNECTOR_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+  CONNECTOR_CREDENTIAL_SIGNING_SECRET: ${CONNECTOR_CREDENTIAL_SIGNING_SECRET:?set CONNECTOR_CREDENTIAL_SIGNING_SECRET in the Docker env file}
+  REGISTRATION_INTERNAL_CODE: ${REGISTRATION_INTERNAL_CODE:?set REGISTRATION_INTERNAL_CODE in the Docker env file}
+  ARK_API_KEY: ${ARK_API_KEY:-}
+  ARK_BASE_URL: ${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+  ARK_MODEL: ${ARK_MODEL:-doubao-seed-2-1-turbo-260628}
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *api-image
+    restart: "no"
+    environment: *api-environment
+    command:
+      - ./apps/api/node_modules/.bin/prisma
+      - migrate
+      - deploy
+      - --schema
+      - apps/api/prisma/schema.prisma
+    volumes:
+      - api-data:/data
+
+  seed:
+    <<: *api-image
+    profiles: ["tools"]
+    restart: "no"
+    environment: *api-environment
+    command: ["node", "apps/api/scripts/seed-if-empty.cjs"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - api-data:/data
+
+  api:
+    <<: *api-image
+    restart: unless-stopped
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    volumes:
+      - api-data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  web:
+    image: agent-guild-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      API_INTERNAL_BASE_URL: http://api:3001
+      NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+      ALLOW_INSECURE_LOCALHOST: ${ALLOW_INSECURE_LOCALHOST:-1}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3000/login').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  api-data:
+  redis-data:

@@ -5,10 +5,16 @@
   "scripts": {
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter api start:dev",
+    "db:reset": "./scripts/reset-dev-db.sh",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter web test:e2e",
     "lint": "pnpm -r lint",
-    "build": "pnpm -r --workspace-concurrency=1 build"
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "docker:build": "docker compose --env-file .env.docker build",
+    "docker:up": "docker compose --env-file .env.docker up -d",
+    "docker:down": "docker compose --env-file .env.docker down",
+    "docker:logs": "docker compose --env-file .env.docker logs -f api web",
+    "docker:seed": "docker compose --env-file .env.docker --profile tools run --rm seed"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

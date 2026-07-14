@@ -25,8 +25,8 @@ describe("GuildPanel", () => {
 
     expect(screen.getByRole("heading", { name: "工会大厅" })).toBeInTheDocument();
     expect(screen.getByText("Morning Forge")).toBeInTheDocument();
-    expect(screen.getByText("成员 3")).toBeInTheDocument();
-    expect(screen.getByText("协作积分 12")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("Night Owls")).toBeInTheDocument();
   });
 });

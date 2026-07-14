@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { login } from "../../lib/api-client";
+import { login, register } from "../../lib/api-client";
 import LoginPage from "./page";
 
 const push = vi.fn();
@@ -12,12 +12,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../../lib/api-client", () => ({
-  login: vi.fn()
+  login: vi.fn(),
+  register: vi.fn()
 }));
 
 describe("login page", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    document.cookie = "agent-guild-session-token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
     push.mockReset();
   });
 
@@ -53,7 +55,46 @@ describe("login page", () => {
       expect(window.localStorage.getItem("agent-guild-session")).toContain(
         "Teacher Lin"
       );
+      expect(document.cookie).toContain("agent-guild-session-token=session_teacher-1");
       expect(push).toHaveBeenCalledWith("/teacher");
+    });
+  });
+
+  it("registers a student only after collecting the internal registration code", async () => {
+    vi.mocked(register).mockResolvedValue({
+      token: "session_new-student",
+      user: {
+        id: "student-new",
+        role: "student",
+        displayName: "新同学"
+      }
+    });
+
+    render(<LoginPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "没有账号？注册" }));
+    fireEvent.change(screen.getByLabelText("显示名称"), {
+      target: { value: "新同学" }
+    });
+    fireEvent.change(screen.getByLabelText("邮箱"), {
+      target: { value: "new@academy.test" }
+    });
+    fireEvent.change(screen.getByLabelText("密码"), {
+      target: { value: "student-pass-123" }
+    });
+    fireEvent.change(screen.getByLabelText("内部注册码"), {
+      target: { value: "chuangshuo_agent_one" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "注册并进入世界" }));
+
+    await waitFor(() => {
+      expect(register).toHaveBeenCalledWith({
+        displayName: "新同学",
+        email: "new@academy.test",
+        password: "student-pass-123",
+        registrationCode: "chuangshuo_agent_one"
+      });
+      expect(push).toHaveBeenCalledWith("/");
     });
   });
 });

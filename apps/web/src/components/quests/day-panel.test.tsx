@@ -26,7 +26,7 @@ describe("DayPanel", () => {
       />
     );
 
-    expect(screen.getByRole("heading", { name: "Day 关卡面板" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "每日关卡" })).toBeInTheDocument();
     expect(screen.getByText("Day 2")).toBeInTheDocument();
     expect(screen.getByText("当前进度")).toBeInTheDocument();
     expect(screen.getByText("提示词迭代")).toBeInTheDocument();

@@ -1,5 +1,8 @@
-const API_BASE_URL =
+const PUBLIC_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+const API_BASE_URL = typeof window === "undefined"
+  ? process.env.API_INTERNAL_BASE_URL ?? PUBLIC_API_BASE_URL
+  : PUBLIC_API_BASE_URL;
 const API_TIMEOUT_MS = 5000; // 5 seconds
 
 export type ApiPayloadState<T> = {
@@ -23,6 +26,11 @@ export type LoginPayload = {
   password: string;
 };
 
+export type RegisterPayload = LoginPayload & {
+  displayName: string;
+  registrationCode: string;
+};
+
 export type WorldPayload = {
   currentDay: number;
   location: string;
@@ -43,12 +51,52 @@ export type GuildSummary = {
 
 export type QuestSummary = {
   id: string;
+  courseWorldId?: string;
+  dayId?: string;
   title: string;
   status: "open" | "locked" | "completed";
+  description?: string;
+  homework?: string;
+  acceptanceCriteria?: string[];
+  dueAt?: string | null;
+  publishedAt?: string | null;
+  teacherId?: string | null;
+};
+
+export type WebsiteLotteryOption = {
+  id: string;
+  dayId: string;
+  label: string;
+  description: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export type WebsiteLotteryDraw = {
+  id: string;
+  dayId: string;
+  studentId: string;
+  drawnAt: string;
+  option: WebsiteLotteryOption;
+};
+
+export type WebsiteLotteryPayload = {
+  dayId: string;
+  options: WebsiteLotteryOption[];
+  draw: WebsiteLotteryDraw | null;
+};
+
+export type WebsiteLotteryOptionInput = {
+  label: string;
+  description?: string;
+  isActive?: boolean;
+  sortOrder?: number;
 };
 
 export type ReviewQueueSummary = {
   pendingCount: number;
+  queuedCount?: number;
+  pendingTeacherDecisionCount?: number;
   reviewedToday: number;
   flaggedCount: number;
 };
@@ -191,7 +239,7 @@ export type AgentConnectorProfile = {
 };
 
 export type AgentPairingResponse = {
-  pairingCode: string;
+  connectionCredential: string;
   expiresAt: string;
 };
 
@@ -231,12 +279,19 @@ const EMPTY_WORLD_PAYLOAD: WorldPayload = {
 const EMPTY_GUILD_LIST: GuildSummary[] = [];
 
 const EMPTY_QUEST_LIST: QuestSummary[] = [];
+const EMPTY_WEBSITE_LOTTERY = (dayId: string): WebsiteLotteryPayload => ({
+  dayId,
+  options: [],
+  draw: null
+});
 const EMPTY_ROOM_ACCESS_GRANTS: RoomAccessGrant[] = [];
 const EMPTY_ACCESSIBLE_ROOMS: AccessibleRoom[] = [];
 
 const EMPTY_REVIEW_QUEUE: ReviewQueuePayload = {
   summary: {
     pendingCount: 0,
+    queuedCount: 0,
+    pendingTeacherDecisionCount: 0,
     reviewedToday: 0,
     flaggedCount: 0
   },
@@ -263,7 +318,16 @@ const EMPTY_CHAT_ROOM = (roomId: string): ChatRoomPayload => ({
 import type {
   ClassroomSnapshot,
   HelpRequest,
-  CreateHelpRequestInput
+  CreateHelpRequestInput,
+  CreateTeacherTaskInput,
+  TeacherTask,
+  TeacherTaskProgressPayload
+} from "contracts";
+
+export type {
+  CreateTeacherTaskInput,
+  TeacherTask,
+  TeacherTaskProgressPayload
 } from "contracts";
 
 export type ClassroomSnapshotPayload = ClassroomSnapshot;
@@ -286,6 +350,8 @@ const EMPTY_CLASSROOM_SNAPSHOT: ClassroomSnapshot = {
   serverNow: new Date(0).toISOString()
 };
 
+const EMPTY_TEACHER_TASK_PROGRESS: TeacherTaskProgressPayload[] = [];
+
 async function fetchJson<T>(path: string): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
@@ -293,6 +359,7 @@ async function fetchJson<T>(path: string): Promise<T> {
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       cache: "no-store",
+      credentials: "include",
       signal: controller.signal
     });
 
@@ -327,6 +394,7 @@ async function fetchJsonWithHeaders<T>(
     const response = await fetch(`${API_BASE_URL}${path}`, {
       cache: "no-store",
       headers,
+      credentials: "include",
       signal: controller.signal
     });
 
@@ -356,6 +424,7 @@ async function postJson<TResponse, TBody>(
         ...headers
       },
       body: JSON.stringify(body),
+      credentials: "include",
       signal: controller.signal
     });
 
@@ -363,6 +432,35 @@ async function postJson<TResponse, TBody>(
       throw new Error(`Failed to post ${path}: ${response.status}`);
     }
 
+    return response.json() as Promise<TResponse>;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function writeJson<TResponse>(
+  path: string,
+  method: "PATCH" | "DELETE",
+  token: string,
+  body?: unknown
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      cache: "no-store",
+      credentials: "include",
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to ${method} ${path}: ${response.status}`);
+    }
     return response.json() as Promise<TResponse>;
   } finally {
     clearTimeout(timeoutId);
@@ -396,13 +494,45 @@ export async function getWorldPayload() {
 }
 
 export async function login(payload: LoginPayload) {
+  if (typeof window !== "undefined") {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to post /auth/login: ${response.status}`);
+    }
+    return response.json() as Promise<AuthSession>;
+  }
   return postJson<AuthSession, LoginPayload>("/auth/login", payload);
 }
 
-export async function getCurrentSession(token: string) {
-  return fetchJsonWithHeaders<AuthSession>("/auth/session", {
-    Authorization: `Bearer ${token}`
-  });
+export async function register(payload: RegisterPayload) {
+  if (typeof window !== "undefined") {
+    const response = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to post /auth/register: ${response.status}`);
+    }
+    return response.json() as Promise<AuthSession>;
+  }
+  return postJson<AuthSession, RegisterPayload>("/auth/register", payload);
+}
+
+export async function getCurrentSession(token?: string) {
+  // In production the browser keeps the credential in an HttpOnly cookie;
+  // omit an empty bearer header so the API can authenticate from that cookie.
+  return token
+    ? fetchJsonWithHeaders<AuthSession>("/auth/session", {
+        Authorization: `Bearer ${token}`
+      })
+    : fetchJson<AuthSession>("/auth/session");
 }
 
 export async function createAgentPairing(token: string) {
@@ -478,6 +608,92 @@ export async function getQuestList(token?: string) {
 
 export async function getQuestListSafe(token?: string) {
   return fetchJsonSafe("/quests", EMPTY_QUEST_LIST, token);
+}
+
+export async function getTeacherTaskProgress(token?: string) {
+  return token
+    ? fetchJsonWithHeaders<TeacherTaskProgressPayload[]>(
+        "/quests/progress",
+        toAuthHeaders(token) ?? {}
+      )
+    : fetchJson<TeacherTaskProgressPayload[]>("/quests/progress");
+}
+
+export async function getTeacherTaskProgressSafe(token?: string) {
+  return fetchJsonSafe(
+    "/quests/progress",
+    EMPTY_TEACHER_TASK_PROGRESS,
+    token
+  );
+}
+
+export async function createTeacherTask(
+  payload: CreateTeacherTaskInput,
+  token?: string
+) {
+  return postJson<TeacherTask, CreateTeacherTaskInput>(
+    "/quests",
+    payload,
+    toAuthHeaders(token)
+  );
+}
+
+export async function getWebsiteLottery(dayId: string, token: string) {
+  return fetchJsonWithHeaders<WebsiteLotteryPayload>(
+    `/website-lottery/days/${encodeURIComponent(dayId)}`,
+    toAuthHeaders(token) ?? {}
+  );
+}
+
+export async function getWebsiteLotterySafe(dayId: string, token?: string) {
+  if (!token) return { data: EMPTY_WEBSITE_LOTTERY(dayId), degraded: true };
+  return fetchJsonSafe(
+    `/website-lottery/days/${encodeURIComponent(dayId)}`,
+    EMPTY_WEBSITE_LOTTERY(dayId),
+    token
+  );
+}
+
+export async function drawWebsiteLottery(dayId: string, token: string) {
+  return postJson<{ alreadyDrawn: boolean; draw: WebsiteLotteryDraw }, Record<string, never>>(
+    `/website-lottery/days/${encodeURIComponent(dayId)}/draw`,
+    {},
+    toAuthHeaders(token)
+  );
+}
+
+export async function createWebsiteLotteryOption(
+  dayId: string,
+  payload: WebsiteLotteryOptionInput,
+  token: string
+) {
+  return postJson<WebsiteLotteryOption, WebsiteLotteryOptionInput>(
+    `/website-lottery/days/${encodeURIComponent(dayId)}/options`,
+    payload,
+    toAuthHeaders(token)
+  );
+}
+
+export async function updateWebsiteLotteryOption(
+  dayId: string,
+  optionId: string,
+  payload: WebsiteLotteryOptionInput,
+  token: string
+) {
+  return writeJson<WebsiteLotteryOption>(
+    `/website-lottery/days/${encodeURIComponent(dayId)}/options/${encodeURIComponent(optionId)}`,
+    "PATCH",
+    token,
+    payload
+  );
+}
+
+export async function deleteWebsiteLotteryOption(dayId: string, optionId: string, token: string) {
+  return writeJson<{ id: string; deleted: boolean }>(
+    `/website-lottery/days/${encodeURIComponent(dayId)}/options/${encodeURIComponent(optionId)}`,
+    "DELETE",
+    token
+  );
 }
 
 export async function getReviewQueue(token?: string) {
@@ -659,6 +875,14 @@ export function pauseClassroomStage(stageId: string, expectedVersion: number, to
 
 export function completeClassroomStage(stageId: string, expectedVersion: number, token: string) {
   return stageControl(stageId, "complete", expectedVersion, token);
+}
+
+export function endClassroomStage(stageId: string, expectedVersion: number, token: string) {
+  return postJson<StageControlResponse, { expectedVersion: number }>(
+    `/classrooms/stages/${encodeURIComponent(stageId)}/end-early`,
+    { expectedVersion },
+    toAuthHeaders(token)
+  );
 }
 
 export function unlockNextClassroomStage(stageId: string, expectedVersion: number, token: string) {

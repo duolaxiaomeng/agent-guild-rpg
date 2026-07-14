@@ -1,4 +1,5 @@
 import { io, type Socket } from "socket.io-client";
+import { getRealtimeUrl } from "../../lib/realtime-url";
 
 export type ClassroomConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -17,13 +18,6 @@ export type ClassroomHelpUpdatePayload = {
   helpRequest: import("contracts").HelpRequest;
 };
 
-function getWsUrl() {
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:3001`;
-  }
-  return "http://localhost:3001";
-}
-
 export function createClassroomSocket({
   token,
   sessionId,
@@ -40,17 +34,18 @@ export function createClassroomSocket({
   initialVersion?: number;
 }): { disconnect: () => void } {
   let stageVersion = initialVersion;
-  let helpVersion = initialVersion;
+  const helpVersions = new Map<string, number>();
   let socket: Socket | undefined;
   onConnectionState?.("connecting");
 
   try {
-    socket = io(getWsUrl(), {
+    socket = io(getRealtimeUrl(), {
       transports: ["websocket"],
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: 3,
-      auth: token ? { token } : undefined
+      auth: token ? { token } : undefined,
+      withCredentials: true
     });
     socket.on("connect", () => {
       onConnectionState?.("connected");
@@ -64,8 +59,10 @@ export function createClassroomSocket({
       onStageUpdate?.(payload);
     });
     socket.on("classroom:help:update", (payload: ClassroomHelpUpdatePayload) => {
-      if (!payload || payload.sessionId !== sessionId || payload.version < helpVersion) return;
-      helpVersion = payload.version;
+      if (!payload || payload.sessionId !== sessionId) return;
+      const currentVersion = helpVersions.get(payload.helpRequest.id) ?? -1;
+      if (payload.version < currentVersion) return;
+      helpVersions.set(payload.helpRequest.id, payload.version);
       onHelpUpdate?.(payload);
     });
   } catch {

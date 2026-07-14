@@ -8,9 +8,10 @@ vi.mock("../../lib/api-client", async () => {
   return { ...actual, createHelpRequest: vi.fn() };
 });
 
+const startedAt = new Date(Date.now() - 1000).toISOString();
 const snapshot = {
   session: { id: "class-1", courseWorldId: "course-1", dayId: "day-1", status: "live" as const, version: 3, currentStageId: "stage-1", startedAt: "2026-07-12T09:00:00.000Z", endedAt: null },
-  currentStage: { id: "stage-1", title: "个人实践", description: "完成今日切片", sortOrder: 0, durationSeconds: 1800, extensionSeconds: 0, status: "running" as const, version: 2, startedAt: "2026-07-12T09:00:00.000Z", pausedAt: null, accumulatedPauseSeconds: 0, remainingSeconds: 1200 },
+  currentStage: { id: "stage-1", title: "个人实践", description: "完成今日切片", sortOrder: 0, durationSeconds: 1800, extensionSeconds: 0, status: "running" as const, version: 2, startedAt, pausedAt: null, accumulatedPauseSeconds: 0, remainingSeconds: 1200 },
   stages: [],
   helpRequests: [],
   viewer: { role: "student" as const, canControlStages: false, canHandleHelp: false },
@@ -56,5 +57,12 @@ describe("StudentClassroomBanner", () => {
       id: "help-1", sessionId: "class-1", studentId: "student-1", category: "question", message: "卡住了", status: "resolved", assigneeId: "teacher-1", resolutionNote: "请先运行测试", createdAt: "2026-07-12T09:00:00.000Z", claimedAt: "2026-07-12T09:01:00.000Z", resolvedAt: "2026-07-12T09:03:00.000Z", version: 2
     }] }} token="session_student-1" studentId="student-1" />);
     expect(screen.getByText("求助状态：已解决（请先运行测试）")).toBeInTheDocument();
+  });
+
+  it("shows an explicit expired state when a running stage reaches zero", () => {
+    const expiredStage = { ...snapshot.currentStage, remainingSeconds: 0, startedAt: "2026-07-12T08:00:00.000Z" };
+    render(<StudentClassroomBanner snapshot={{ ...snapshot, currentStage: expiredStage }} token="session_student-1" studentId="student-1" />);
+
+    expect(screen.getByText("时间到")).toBeInTheDocument();
   });
 });

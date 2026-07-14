@@ -148,6 +148,9 @@ model User {
   classroomHelpRequestsCreated  HelpRequest[]              @relation("ClassroomHelpStudent")
   classroomHelpRequestsAssigned HelpRequest[]              @relation("ClassroomHelpAssignee")
   classroomEvents               ClassroomEvent[]           @relation("ClassroomEventActor")
+  questDaysPublished            QuestDay[]                 @relation("QuestDayTeacher")
+  websiteLotteryOptionsCreated  WebsiteLotteryOption[]     @relation("WebsiteLotteryOptionTeacher")
+  websiteLotteryDraws           WebsiteLotteryDraw[]
 }
 
 model CourseWorld {
@@ -223,14 +226,58 @@ model ChatMessage {
 }
 
 model QuestDay {
-  id                String             @id
-  courseWorldId     String
-  title             String
-  status            QuestStatus
-  courseWorld       CourseWorld        @relation(fields: [courseWorldId], references: [id])
-  submissions       AgentSubmission[]
-  agentEvents       AgentEvent[]
-  classroomSessions ClassroomSession[]
+  id                    String                 @id
+  courseWorldId         String
+  title                 String
+  status                QuestStatus
+  description           String                 @default("")
+  homework              String                 @default("")
+  acceptanceCriteria    Json                   @default("[]")
+  dueAt                 DateTime?
+  publishedAt           DateTime?
+  teacherId             String?
+  courseWorld           CourseWorld            @relation(fields: [courseWorldId], references: [id])
+  teacher               User?                  @relation("QuestDayTeacher", fields: [teacherId], references: [id])
+  submissions           AgentSubmission[]
+  agentEvents           AgentEvent[]
+  classroomSessions     ClassroomSession[]
+  websiteLotteryOptions WebsiteLotteryOption[]
+  websiteLotteryDraws   WebsiteLotteryDraw[]
+
+  @@index([courseWorldId, publishedAt])
+  @@index([teacherId, publishedAt])
+}
+
+model WebsiteLotteryOption {
+  id          String               @id @default(cuid())
+  dayId       String
+  label       String
+  description String               @default("")
+  isActive    Boolean              @default(true)
+  sortOrder   Int                  @default(0)
+  createdById String
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  day         QuestDay             @relation(fields: [dayId], references: [id])
+  createdBy   User                 @relation("WebsiteLotteryOptionTeacher", fields: [createdById], references: [id])
+  draws       WebsiteLotteryDraw[]
+
+  @@index([dayId, isActive, sortOrder])
+}
+
+model WebsiteLotteryDraw {
+  id        String               @id @default(cuid())
+  dayId     String
+  studentId String
+  optionId  String
+  drawnAt   DateTime             @default(now())
+  day       QuestDay             @relation(fields: [dayId], references: [id])
+  student   User                 @relation(fields: [studentId], references: [id])
+  option    WebsiteLotteryOption @relation(fields: [optionId], references: [id])
+
+  @@unique([dayId, studentId])
+  @@unique([dayId, optionId])
+  @@index([optionId, drawnAt])
 }
 
 model AgentSession {
@@ -345,6 +392,10 @@ model ContributionLog {
 model AgentMemory {
   id             String   @id @default(cuid())
   studentId      String
+  courseWorldId  String?
+  roomId         String?
+  agentSessionId String?
+  taskId         String?
   type           String
   content        String
   embedding      String?
@@ -357,6 +408,24 @@ model AgentMemory {
 
   @@index([studentId, type])
   @@index([studentId, createdAt])
+  @@index([studentId, courseWorldId])
+  @@index([studentId, roomId])
+  @@index([studentId, agentSessionId])
+  @@index([studentId, taskId])
+}
+
+model AgentRunSnapshot {
+  runId          String   @id
+  status         String
+  input          Json?
+  dependencies   Json
+  result         Json?
+  error          String?
+  previousStatus String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 model UserSession {

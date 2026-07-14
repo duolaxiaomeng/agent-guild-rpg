@@ -18,13 +18,45 @@ function getDatabaseUrl(databaseName: string) {
 }
 
 export async function prepareTestDatabase(databaseName: string) {
-  process.env.DATABASE_URL = getDatabaseUrl(databaseName);
+  const databaseUrl = getDatabaseUrl(databaseName);
+  process.env.DATABASE_URL = databaseUrl;
+  const prismaExecutable = resolve(
+    process.cwd(),
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "prisma.cmd" : "prisma"
+  );
 
-  execFileSync("pnpm", ["exec", "prisma", "db", "push", "--skip-generate"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: "pipe"
-  });
+  // Use Prisma's generated SQL plus db execute instead of db push. The
+  // current local runtime returns an empty Schema Engine error from db push.
+  const schemaSql = execFileSync(
+    prismaExecutable,
+    [
+      "migrate",
+      "diff",
+      "--from-empty",
+      "--to-schema-datamodel",
+      "prisma/schema.prisma",
+      "--script"
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+
+  execFileSync(
+    prismaExecutable,
+    ["db", "execute", "--stdin", "--url", databaseUrl],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      input: schemaSql,
+      stdio: "pipe"
+    }
+  );
 
   const prisma = new PrismaClient();
   await seedDatabase(prisma);

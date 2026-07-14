@@ -15,7 +15,11 @@ import {
   getGuildList,
   getQuestListSafe,
   getQuestList,
+  getTeacherTaskProgress,
+  getTeacherTaskProgressSafe,
+  createTeacherTask,
   login,
+  register,
   getReviewQueueSafe,
   getReviewQueue,
   revokeRoomAccessGrant,
@@ -123,14 +127,15 @@ describe("api client", () => {
     } as Response);
 
     await expect(getWorldPayload()).resolves.toEqual(mockPayload);
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/world", {
-      cache: "no-store"
-    });
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/world", expect.objectContaining({
+      cache: "no-store",
+      credentials: "include"
+    }));
   });
 
-  it("creates a short-lived local Agent pairing code", async () => {
+  it("creates a short-lived local Agent connection credential", async () => {
     const mockPayload = {
-      pairingCode: "ABCD2345",
+      connectionCredential: "agc1.credential-payload.signature",
       expiresAt: "2026-07-12T04:10:00.000Z"
     };
 
@@ -217,9 +222,10 @@ describe("api client", () => {
     } as Response);
 
     await expect(getGuildList()).resolves.toEqual(mockPayload);
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/guilds", {
-      cache: "no-store"
-    });
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/guilds", expect.objectContaining({
+      cache: "no-store",
+      credentials: "include"
+    }));
   });
 
   it("requests the quest list without cache", async () => {
@@ -233,8 +239,83 @@ describe("api client", () => {
     } as Response);
 
     await expect(getQuestList()).resolves.toEqual(mockPayload);
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/quests", {
-      cache: "no-store"
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/quests", expect.objectContaining({
+      cache: "no-store",
+      credentials: "include"
+    }));
+  });
+
+  it("reads the teacher task progress with the teacher credential", async () => {
+    const progress = [
+      {
+        courseWorldId: "course-1",
+        dayId: "day-2",
+        title: "Prompt Iteration",
+        status: "open",
+        description: "迭代提示词",
+        homework: "提交运行记录",
+        acceptanceCriteria: ["能够稳定复现"],
+        dueAt: null,
+        publishedAt: "2026-07-14T03:00:00.000Z",
+        teacherId: "teacher-1",
+        summary: { total: 3, notStarted: 1, submitted: 1, reviewed: 1 },
+        students: []
+      }
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => progress
+    } as Response);
+
+    await expect(getTeacherTaskProgress("session_teacher-1")).resolves.toEqual(progress);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/quests/progress",
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+        headers: { Authorization: "Bearer session_teacher-1" }
+      })
+    );
+  });
+
+  it("publishes a daily homework task through the teacher API", async () => {
+    const payload = {
+      courseWorldId: "course-1",
+      dayId: "day-3",
+      title: "Tool Agent",
+      status: "open" as const,
+      description: "构建一个工具 Agent",
+      homework: "提交实现与运行记录",
+      acceptanceCriteria: ["工具调用成功"],
+      dueAt: null,
+      publishedAt: "2026-07-14T04:00:00.000Z"
+    };
+    const response = { ...payload, teacherId: "teacher-1" };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => response
+    } as Response);
+
+    await expect(createTeacherTask(payload, "session_teacher-1")).resolves.toEqual(response);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3001/quests",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer session_teacher-1"
+        },
+        body: JSON.stringify(payload),
+        credentials: "include"
+      })
+    );
+  });
+
+  it("falls back to an empty teacher progress list when the API is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+    await expect(getTeacherTaskProgressSafe("session_teacher-1")).resolves.toEqual({
+      data: [],
+      degraded: true
     });
   });
 
@@ -268,9 +349,10 @@ describe("api client", () => {
     } as Response);
 
     await expect(getReviewQueue()).resolves.toEqual(mockPayload);
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews", {
-      cache: "no-store"
-    });
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews", expect.objectContaining({
+      cache: "no-store",
+      credentials: "include"
+    }));
   });
 
   it("requests the chat overview without cache", async () => {
@@ -303,9 +385,7 @@ describe("api client", () => {
     await expect(getChatOverview("student-1")).resolves.toEqual(mockPayload);
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://localhost:3001/chat?studentId=student-1",
-      {
-        cache: "no-store"
-      }
+      expect.objectContaining({ cache: "no-store", credentials: "include" })
     );
   });
 
@@ -347,12 +427,11 @@ describe("api client", () => {
     );
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://localhost:3001/chat?roomId=room-chat-student-1",
-      {
+      expect.objectContaining({
         cache: "no-store",
-        headers: {
-          Authorization: "Bearer session_student-2"
-        }
-      }
+        credentials: "include",
+        headers: { Authorization: "Bearer session_student-2" }
+      })
     );
   });
 
@@ -378,15 +457,45 @@ describe("api client", () => {
       })
     ).resolves.toEqual(mockPayload);
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/auth/login", {
+    expect(fetchSpy).toHaveBeenCalledWith("/api/auth/login", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
+      credentials: "include",
       body: JSON.stringify({
         email: "teacher@academy.test",
         password: "teacher-pass-123"
       })
+    });
+  });
+
+  it("posts registration details through the same-origin auth route", async () => {
+    const mockPayload = {
+      token: "session_student-new",
+      user: {
+        id: "student-new",
+        role: "student",
+        displayName: "新同学"
+      }
+    };
+    const payload = {
+      displayName: "新同学",
+      email: "new@academy.test",
+      password: "student-pass-123",
+      registrationCode: "chuangshuo_agent_one"
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => mockPayload
+    } as Response);
+
+    await expect(register(payload)).resolves.toEqual(mockPayload);
+    expect(fetchSpy).toHaveBeenCalledWith("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "include"
     });
   });
 
@@ -407,12 +516,11 @@ describe("api client", () => {
 
     await expect(getCurrentSession("session_student-2")).resolves.toEqual(mockPayload);
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/auth/session", {
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/auth/session", expect.objectContaining({
       cache: "no-store",
-      headers: {
-        Authorization: "Bearer session_student-2"
-      }
-    });
+      credentials: "include",
+      headers: { Authorization: "Bearer session_student-2" }
+    }));
   });
 
   it("requests the room access grant list without cache", async () => {
@@ -439,9 +547,7 @@ describe("api client", () => {
     );
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://localhost:3001/rooms/access-grants?roomId=room-chat-student-1",
-      {
-        cache: "no-store"
-      }
+      expect.objectContaining({ cache: "no-store", credentials: "include" })
     );
   });
 
@@ -480,8 +586,9 @@ describe("api client", () => {
       }, "session_student-1")
     ).resolves.toEqual(mockPayload);
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/submissions", {
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/submissions", expect.objectContaining({
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer session_student-1"
@@ -506,7 +613,7 @@ describe("api client", () => {
         agentEvaluationHints: ["submitted from chat"],
         timestamp: "2026-06-29T12:00:00.000Z"
       })
-    });
+    }));
   });
 
   it("posts a room chat message to the write api", async () => {
@@ -534,8 +641,9 @@ describe("api client", () => {
       )
     ).resolves.toEqual(mockPayload);
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/chat/messages", {
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/chat/messages", expect.objectContaining({
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer session_student-1"
@@ -544,7 +652,7 @@ describe("api client", () => {
         roomId: "room-chat-student-1",
         body: "我已经把验证步骤写进 README 了。"
       })
-    });
+    }));
   });
 
   it("posts a teacher review decision to the write api", async () => {
@@ -567,8 +675,9 @@ describe("api client", () => {
       })
     ).resolves.toEqual(mockPayload);
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews/decide", {
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3001/reviews/decide", expect.objectContaining({
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json"
       },
@@ -577,7 +686,7 @@ describe("api client", () => {
         finalScore: 90,
         decision: "approve"
       })
-    });
+    }));
   });
 
   it("posts a room access grant creation request to the write api", async () => {
@@ -608,8 +717,9 @@ describe("api client", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://localhost:3001/rooms/access-grants",
-      {
+      expect.objectContaining({
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json"
         },
@@ -619,7 +729,7 @@ describe("api client", () => {
           scope: "chat_summary",
           expiresInHours: 24
         })
-      }
+      })
     );
   });
 
@@ -644,13 +754,14 @@ describe("api client", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://localhost:3001/rooms/access-grants/grant-1/revoke",
-      {
+      expect.objectContaining({
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({})
-      }
+      })
     );
   });
 

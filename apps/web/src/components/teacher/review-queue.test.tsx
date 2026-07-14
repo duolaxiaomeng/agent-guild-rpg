@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { decideReview } from "../../lib/api-client";
 import { ReviewQueue } from "./review-queue";
 
@@ -8,6 +8,20 @@ vi.mock("../../lib/api-client", () => ({
 }));
 
 describe("ReviewQueue", () => {
+  beforeEach(() => {
+    window.localStorage.setItem(
+      "agent-guild-session",
+      JSON.stringify({
+        token: "session_teacher-1",
+        user: {
+          id: "teacher-1",
+          role: "teacher",
+          displayName: "Teacher Lin"
+        }
+      })
+    );
+  });
+
   it("shows teacher review summary and live review items", () => {
     render(
       <ReviewQueue
@@ -23,6 +37,8 @@ describe("ReviewQueue", () => {
             guildName: "Morning Forge",
             dayLabel: "Day 2",
             decisionLabel: "需要调整",
+            reviewStatus: "teacher_decided",
+            isPendingTeacherDecision: false,
             finalScore: 90,
             submittedAtLabel: "2026-06-29 09:00",
             rationale: "补充工件截图后再进入老师终审。"
@@ -31,7 +47,7 @@ describe("ReviewQueue", () => {
       />
     );
 
-    expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "评审队列" })).toBeInTheDocument();
     expect(screen.getByText("待老师裁定 1")).toBeInTheDocument();
     expect(screen.getByText("今日已裁定 2")).toBeInTheDocument();
     expect(screen.getByText("需重点关注 1")).toBeInTheDocument();
@@ -41,6 +57,39 @@ describe("ReviewQueue", () => {
     expect(screen.getByText("需要调整")).toBeInTheDocument();
     expect(screen.getByText("终评分 90")).toBeInTheDocument();
     expect(screen.getByText("补充工件截图后再进入老师终审。")).toBeInTheDocument();
+  });
+
+  it("renders queued AI work separately from teacher decisions", () => {
+    render(
+      <ReviewQueue
+        summary={{
+          pendingCount: 2,
+          queuedCount: 1,
+          pendingTeacherDecisionCount: 1,
+          reviewedToday: 0,
+          flaggedCount: 0
+        }}
+        items={[
+          {
+            submissionId: "queued-1",
+            studentName: "Lin",
+            guildName: "Morning Forge",
+            dayLabel: "Day 1",
+            decisionLabel: "AI评审中",
+            reviewStatus: "queued",
+            isPendingTeacherDecision: false,
+            finalScore: null,
+            suggestedScore: null,
+            decision: null,
+            submittedAtLabel: "刚刚",
+            rationale: "AI review queued."
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("AI评审中 1")).toBeInTheDocument();
+    expect(screen.getByText("待老师裁定 1")).toBeInTheDocument();
   });
 
   it("sends an approve decision when the teacher clicks 通过", async () => {
@@ -63,7 +112,9 @@ describe("ReviewQueue", () => {
             studentName: "Mo",
             guildName: "Morning Forge",
             dayLabel: "Day 2",
-            decisionLabel: "已通过",
+            decisionLabel: "待老师裁定",
+            reviewStatus: "ai_reviewed",
+            isPendingTeacherDecision: true,
             finalScore: 90,
             submittedAtLabel: "2026-06-29 09:00",
             rationale: "补充工件截图后再进入老师终审。"
@@ -81,7 +132,7 @@ describe("ReviewQueue", () => {
         submissionId: "submission-1",
         finalScore: 90,
         decision: "approve"
-      });
+      }, "session_teacher-1");
     });
 
     await waitFor(() => {
@@ -113,7 +164,9 @@ describe("ReviewQueue", () => {
             studentName: "Mo",
             guildName: "Morning Forge",
             dayLabel: "Day 2",
-            decisionLabel: "已通过",
+            decisionLabel: "待老师裁定",
+            reviewStatus: "ai_reviewed",
+            isPendingTeacherDecision: true,
             finalScore: 90,
             submittedAtLabel: "2026-06-29 09:00",
             rationale: "补充工件截图后再进入老师终审。"
@@ -124,6 +177,8 @@ describe("ReviewQueue", () => {
             guildName: "Morning Forge",
             dayLabel: "Day 1",
             decisionLabel: "已通过",
+            reviewStatus: "teacher_decided",
+            isPendingTeacherDecision: false,
             finalScore: 95,
             submittedAtLabel: "2026-06-29 08:00",
             rationale: "证据完整，可进入下一关。"
@@ -145,7 +200,7 @@ describe("ReviewQueue", () => {
         submissionId: "submission-1",
         finalScore: 85,
         decision: "adjust"
-      });
+      }, "session_teacher-1");
     });
 
     await waitFor(() => {

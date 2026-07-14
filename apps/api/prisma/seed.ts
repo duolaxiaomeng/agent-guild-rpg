@@ -103,14 +103,34 @@ export const seedScenario = {
     {
       id: "day-1",
       courseWorldId: "course-world-1",
-      title: "First Agent Session",
-      status: "open"
+      title: "首次 Agent 协作：把需求变成可验收任务",
+      status: "open",
+      description: "学习把课堂需求拆成目标、约束和验收标准，并让 Agent 在真实项目中执行。",
+      homework: "连接自己的 Agent，完成一次任务执行，提交产物链接、对话摘要和个人复盘。",
+      acceptanceCriteria: [
+        "Agent 能读取任务上下文并复述目标",
+        "提交至少包含一个可核验产物",
+        "复盘说明一次问题、修正过程与最终结果"
+      ],
+      dueAt: new Date("2026-07-15T10:00:00.000Z"),
+      publishedAt: new Date("2026-07-14T01:00:00.000Z"),
+      teacherId: "teacher-1"
     },
     {
       id: "day-2",
       courseWorldId: "course-world-1",
-      title: "Prompt Iteration",
-      status: "locked"
+      title: "迭代 Prompt：用对比实验改进结果",
+      status: "locked",
+      description: "围绕同一教学目标设计两版 Prompt，通过可重复的对比实验判断改进是否有效。",
+      homework: "完成两版 Prompt 与不少于三组对比测试，记录输入、输出、评价依据和下一轮改进计划。",
+      acceptanceCriteria: [
+        "保留两版完整 Prompt",
+        "至少完成三组使用相同输入的对比测试",
+        "结论能够引用测试结果说明改进依据"
+      ],
+      dueAt: new Date("2026-07-16T10:00:00.000Z"),
+      publishedAt: null,
+      teacherId: "teacher-1"
     }
   ],
   classroomSessions: [
@@ -182,6 +202,12 @@ export const seedScenario = {
   ],
   rooms: [
     { id: "room-chat-student-1", homesteadId: "home-1", type: "chat_room", name: "Lin 的聊天室" }
+  ],
+  websiteLotteryOptions: [
+    { id: "lottery-option-portfolio", dayId: "day-1", label: "Agent 个人作品集网站", description: "让 Agent 展示个人技能、项目和联系方式。", sortOrder: 1, createdById: "teacher-1" },
+    { id: "lottery-option-short-video", dayId: "day-1", label: "Agent 短视频选题网站", description: "让 Agent 根据关键词和热点生成选题池。", sortOrder: 2, createdById: "teacher-1" },
+    { id: "lottery-option-xhs-note", dayId: "day-1", label: "Agent 小红书笔记网站", description: "让 Agent 生成标题、正文结构和标签建议。", sortOrder: 3, createdById: "teacher-1" },
+    { id: "lottery-option-custom", dayId: "day-1", label: "Agent 自定义主题", description: "由老师在课堂上补充具体 Agent 任务和约束。", sortOrder: 4, createdById: "teacher-1" }
   ],
   submissions: [
     {
@@ -358,6 +384,8 @@ export async function seedDatabase(prisma: PrismaClient) {
     "kai@academy.test": "student-pass-789"
   };
   await prisma.classroomEvent.deleteMany();
+  await prisma.websiteLotteryDraw.deleteMany();
+  await prisma.websiteLotteryOption.deleteMany();
   await prisma.helpRequest.deleteMany();
   await prisma.classroomStaffAssignment.deleteMany();
   await prisma.classroomStage.deleteMany();
@@ -417,7 +445,8 @@ export async function seedDatabase(prisma: PrismaClient) {
   await prisma.questDay.createMany({
     data: seedScenario.questDays.map((questDay) => ({
       ...questDay,
-      status: questStatusMap[questDay.status]
+      status: questStatusMap[questDay.status],
+      acceptanceCriteria: [...questDay.acceptanceCriteria]
     }))
   });
 
@@ -454,6 +483,10 @@ export async function seedDatabase(prisma: PrismaClient) {
       ...room,
       type: RoomType.chat_room
     }))
+  });
+
+  await prisma.websiteLotteryOption.createMany({
+    data: [...seedScenario.websiteLotteryOptions]
   });
 
   await prisma.agentSubmission.createMany({

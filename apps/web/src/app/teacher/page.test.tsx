@@ -66,6 +66,32 @@ describe("teacher page", () => {
         } as Response;
       }
 
+      if (url.endsWith("/quests/progress")) {
+        return {
+          ok: true,
+          json: async () => [
+            {
+              courseWorldId: "course-1",
+              dayId: "day-2",
+              title: "Agent Tool Homework",
+              status: "open",
+              description: "Build an Agent that can call one tool.",
+              homework: "Submit the implementation and execution log.",
+              acceptanceCriteria: ["Tool call succeeds"],
+              dueAt: null,
+              publishedAt: "2026-07-14T03:00:00.000Z",
+              teacherId: "teacher-1",
+              summary: { total: 3, notStarted: 1, submitted: 1, reviewed: 1 },
+              students: []
+            }
+          ]
+        } as Response;
+      }
+
+      if (url.endsWith("/agent-connectors/me")) {
+        return { ok: true, json: async () => null } as Response;
+      }
+
       if (url.endsWith("/reviews")) {
         return {
           ok: true,
@@ -100,7 +126,11 @@ describe("teacher page", () => {
     render(await TeacherPage());
 
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "进入我的主城区" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("heading", { name: "每日关卡" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "任务发布与作业进度" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agent Tool Homework" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "老师 Agent" })).toBeInTheDocument();
     expect(screen.getByText("待老师裁定 1")).toBeInTheDocument();
     expect(screen.getByText("今日已裁定 1")).toBeInTheDocument();
     expect(screen.getByText("需重点关注 1")).toBeInTheDocument();
@@ -188,5 +218,7 @@ describe("teacher page", () => {
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "课堂求助队列" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "课堂指挥台" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "任务发布与作业进度" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "老师 Agent" })).not.toBeInTheDocument();
   });
 });

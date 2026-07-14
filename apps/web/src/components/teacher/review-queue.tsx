@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 import { decideReview, type DecideReviewPayload } from "../../lib/api-client";
+import { loadSession } from "../../lib/session";
 
 type ReviewQueueSummary = {
   pendingCount: number;
+  queuedCount?: number;
+  pendingTeacherDecisionCount?: number;
   reviewedToday: number;
   flaggedCount: number;
 };
@@ -15,7 +18,11 @@ type ReviewQueueItem = {
   guildName: string;
   dayLabel: string;
   decisionLabel: string;
-  finalScore: number;
+  reviewStatus?: "queued" | "ai_reviewed" | "teacher_decided";
+  isPendingTeacherDecision: boolean;
+  finalScore: number | null;
+  suggestedScore: number | null;
+  decision: "approve" | "adjust" | "reject" | null;
   submittedAtLabel: string;
   rationale: string;
 };
@@ -27,8 +34,10 @@ type ReviewQueueProps = {
 
 type LocalReviewQueueItem = ReviewQueueItem & {
   currentDecisionLabel: string;
-  currentFinalScore: number;
+  currentFinalScore: number | null;
+  currentDecision: "approve" | "adjust" | "reject" | null;
   isPendingTeacherDecision: boolean;
+  decidedAt: string | null;
 };
 
 type LocalReviewQueueState = {
@@ -49,7 +58,16 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
     item: LocalReviewQueueItem,
     decision: DecideReviewPayload["decision"]
   ) {
-    const finalScore = getNextFinalScore(item.currentFinalScore, decision);
+    const session = loadSession();
+    const finalScore = getNextFinalScore(item.suggestedScore, item.currentFinalScore, decision);
+
+    if (!session) {
+      setActionFeedback((current) => ({
+        ...current,
+        [item.submissionId]: "当前登录已失效，请重新登录。"
+      }));
+      return;
+    }
 
     setPendingSubmissionId(item.submissionId);
     setActionFeedback((current) => ({
@@ -62,7 +80,7 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
         submissionId: item.submissionId,
         finalScore,
         decision
-      });
+      }, session.token);
 
       setQueueState((current) => {
         const nextItems = current.items.map((currentItem) => {
@@ -74,12 +92,14 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
             ...currentItem,
             currentDecisionLabel: toDecisionLabel(result.decision),
             currentFinalScore: result.finalScore,
-            isPendingTeacherDecision: false
+            currentDecision: result.decision,
+            isPendingTeacherDecision: false,
+            decidedAt: new Date().toISOString()
           };
         });
 
         return {
-          summary: deriveSummary(nextItems),
+          summary: deriveSummary(nextItems, current.summary.reviewedToday + 1),
           items: nextItems
         };
       });
@@ -97,58 +117,183 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
     }
   }
 
+  const queuedCount = queueState.summary.queuedCount ?? 0;
+  const pendingTeacherDecisionCount = queueState.summary.pendingTeacherDecisionCount ?? queueState.summary.pendingCount;
+  const summaryCards: { text: string; value: number; color: string; bg: string }[] = [
+    { text: `AI评审中 ${queuedCount}`, value: queuedCount, color: "#60a5fa", bg: "rgba(96,165,250,0.1)" },
+    { text: `待老师裁定 ${pendingTeacherDecisionCount}`, value: pendingTeacherDecisionCount, color: "#6366f1", bg: "rgba(99,102,241,0.1)" },
+    { text: `今日已裁定 ${queueState.summary.reviewedToday}`, value: queueState.summary.reviewedToday, color: "#4ade80", bg: "rgba(74,222,128,0.1)" },
+    { text: `需重点关注 ${queueState.summary.flaggedCount}`, value: queueState.summary.flaggedCount, color: "#fbbf24", bg: "rgba(251,191,36,0.1)" },
+  ];
+
   return (
-    <section>
-      <h1>老师工作台</h1>
-      <div>
-        <span>待老师裁定 {queueState.summary.pendingCount}</span>
-        <span>今日已裁定 {queueState.summary.reviewedToday}</span>
-        <span>需重点关注 {queueState.summary.flaggedCount}</span>
+    <section style={sectionStyle}>
+      <div style={sectionHeaderStyle}>
+        <div>
+          <span style={eyebrowStyle}>REVIEW OPERATIONS</span>
+          <h2 style={sectionTitleStyle}>评审队列</h2>
+        </div>
+        <span style={queueCountBadgeStyle}>{queueState.items.length} 份提交</span>
       </div>
-      <ul>
+
+      {/* Summary cards */}
+      <div style={summaryGridStyle}>
+        {summaryCards.map((card) => (
+          <div
+            key={card.text}
+            style={{
+              ...summaryCardStyle,
+              background: `linear-gradient(145deg, ${card.bg}, rgba(7,13,28,0.42))`,
+              borderColor: `${card.color}40`,
+              borderTopColor: card.color,
+            }}
+          >
+            <span aria-hidden="true" style={{ ...summaryDotStyle, background: card.color, boxShadow: `0 0 12px ${card.color}55` }} />
+            <span
+              style={{
+                fontFamily: "var(--font-pixel)",
+                fontSize: "clamp(12px, 2vw, 14px)",
+                fontWeight: "800",
+                color: card.color,
+                lineHeight: 1.35,
+                display: "block",
+              }}
+            >
+              {card.text}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Review list */}
+      <ul style={reviewListStyle}>
         {queueState.items.map((item) => {
           const isPending = pendingSubmissionId === item.submissionId;
+          const statusTone = item.reviewStatus === "queued"
+            ? "#64b7ff"
+            : item.isPendingTeacherDecision
+              ? "#f8bd58"
+              : item.currentDecision === "approve"
+                ? "#50d6ba"
+                : item.currentDecision === "reject"
+                  ? "#ff6b7d"
+                  : "#9aafff";
 
           return (
-            <li key={item.submissionId}>
-              <strong>{item.studentName}</strong>
-              <p>{item.guildName}</p>
-              <p>{item.dayLabel}</p>
-              <p>{item.currentDecisionLabel}</p>
-              <p>终评分 {item.currentFinalScore}</p>
-              <p>{item.submittedAtLabel}</p>
-              <p>{item.rationale}</p>
-              <div>
-                <button
-                  type="button"
-                  onClick={() => void handleDecision(item, "approve")}
-                  disabled={isPending}
+            <li
+              key={item.submissionId}
+              style={{
+                ...reviewItemStyle,
+                borderLeftColor: statusTone,
+              }}
+            >
+              <div style={reviewItemHeaderStyle}>
+                <div>
+                  <span style={submissionLabelStyle}>SUBMISSION / {item.submissionId}</span>
+                  <strong style={studentNameStyle}>{item.studentName}</strong>
+                </div>
+                <span
+                  style={{
+                    ...statusBadgeStyle,
+                    color: statusTone,
+                    borderColor: `${statusTone}55`,
+                    background: `${statusTone}14`,
+                  }}
                 >
-                  通过
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDecision(item, "adjust")}
-                  disabled={isPending}
-                >
-                  调整
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDecision(item, "reject")}
-                  disabled={isPending}
-                >
-                  驳回
-                </button>
+                  <span aria-hidden="true">●</span>
+                  {item.currentDecisionLabel}
+                </span>
               </div>
+
+              <div style={metadataStyle}>
+                <span style={metadataChipStyle}>{item.guildName}</span>
+                <span style={metadataChipStyle}>{item.dayLabel}</span>
+                <span style={{ ...metadataChipStyle, color: "#e6ebf6" }}>{toScoreLabel(item.currentFinalScore)}</span>
+                <span style={metadataChipStyle}>{item.submittedAtLabel}</span>
+              </div>
+
+              <p style={rationaleStyle}>
+                {item.rationale}
+              </p>
+
+              <div style={decisionRowStyle}>
+                <DecisionButton
+                  label="通过"
+                  color="#4ade80"
+                  onClick={() => void handleDecision(item, "approve")}
+                  disabled={isPending || !item.isPendingTeacherDecision}
+                />
+                <DecisionButton
+                  label="调整"
+                  color="#fbbf24"
+                  onClick={() => void handleDecision(item, "adjust")}
+                  disabled={isPending || !item.isPendingTeacherDecision}
+                />
+                <DecisionButton
+                  label="驳回"
+                  color="#f87171"
+                  onClick={() => void handleDecision(item, "reject")}
+                  disabled={isPending || !item.isPendingTeacherDecision}
+                />
+              </div>
+
               {actionFeedback[item.submissionId] ? (
-                <p>{actionFeedback[item.submissionId]}</p>
+                <p role="status" style={{ ...feedbackStyle, color: actionFeedback[item.submissionId].includes("失败") || actionFeedback[item.submissionId].includes("失效") ? "#ff9aa8" : "#8ce7d5" }}>
+                  {actionFeedback[item.submissionId]}
+                </p>
               ) : null}
             </li>
           );
         })}
+        {queueState.items.length === 0 ? (
+          <li style={emptyStateStyle}>
+            <strong style={{ color: "#d9e2f3" }}>评审队列已清空</strong>
+            <span style={{ color: "#8998b5", fontSize: 12 }}>新的学生提交会在这里等待处理。</span>
+          </li>
+        ) : null}
       </ul>
     </section>
+  );
+}
+
+function DecisionButton({
+  label,
+  color,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  color: string;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const style: CSSProperties = {
+    flex: "1 1 88px",
+    minHeight: 38,
+    padding: "8px 14px",
+    fontSize: "13px",
+    fontWeight: "800",
+    color: disabled ? "rgba(255,255,255,0.25)" : color,
+    background: disabled ? "rgba(255,255,255,0.04)" : hovered ? `${color}20` : `${color}14`,
+    border: `1px solid ${disabled ? "rgba(255,255,255,0.08)" : `${color}55`}`,
+    borderRadius: "5px",
+    cursor: disabled ? "not-allowed" : "pointer",
+    boxShadow: disabled ? "none" : "0 2px 0 rgba(3,6,14,0.42)",
+    transition: "background 0.15s, border-color 0.15s, transform 0.15s",
+    opacity: disabled ? 0.5 : 1,
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={style}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -158,55 +303,51 @@ function createLocalQueueState(
 ): LocalReviewQueueState {
   return {
     summary,
-    items: toLocalReviewQueueItems(summary, items)
+    items: toLocalReviewQueueItems(items)
   };
 }
 
-function toLocalReviewQueueItems(
-  summary: ReviewQueueSummary,
-  items: ReviewQueueItem[]
-) {
-  let inferredPendingCount = summary.pendingCount;
-
+function toLocalReviewQueueItems(items: ReviewQueueItem[]) {
   return items.map((item) => {
-    const isPendingTeacherDecision =
-      item.decisionLabel === "待老师裁定" ||
-      (item.decisionLabel === "已通过" && inferredPendingCount > 0);
-
-    if (isPendingTeacherDecision) {
-      inferredPendingCount -= 1;
-    }
-
     return {
-      ...item,
-      currentDecisionLabel: isPendingTeacherDecision ? "待老师裁定" : item.decisionLabel,
+        ...item,
+      currentDecisionLabel: item.isPendingTeacherDecision ? "待老师裁定" : item.decisionLabel,
       currentFinalScore: item.finalScore,
-      isPendingTeacherDecision
+      currentDecision: item.decision,
+      isPendingTeacherDecision: item.isPendingTeacherDecision,
+      decidedAt: null as string | null
     };
   });
 }
 
-function deriveSummary(items: LocalReviewQueueItem[]): ReviewQueueSummary {
+function deriveSummary(items: LocalReviewQueueItem[], reviewedToday: number): ReviewQueueSummary {
   return {
-    pendingCount: items.filter((item) => item.isPendingTeacherDecision).length,
-    reviewedToday: items.filter((item) => !item.isPendingTeacherDecision).length,
+    pendingCount: items.filter((item) => item.reviewStatus === "queued" || item.isPendingTeacherDecision).length,
+    queuedCount: items.filter((item) => item.reviewStatus === "queued").length,
+    pendingTeacherDecisionCount: items.filter((item) => item.isPendingTeacherDecision).length,
+    reviewedToday,
+    // F-015: Use decision enum instead of Chinese string matching
     flaggedCount: items.filter(
-      (item) =>
-        item.currentDecisionLabel === "需要调整" || item.currentDecisionLabel === "已退回"
+      (item) => item.currentDecision === "adjust" || item.currentDecision === "reject"
     ).length
   };
 }
 
 function getNextFinalScore(
-  currentFinalScore: number,
+  suggestedScore: number | null,
+  currentFinalScore: number | null,
   decision: DecideReviewPayload["decision"]
 ) {
+  // F-003: Use suggestedScore as the base for approve/adjust decisions
+  // instead of falling back to 0 when no finalScore exists
+  const baseScore = suggestedScore ?? currentFinalScore ?? 0;
+
   if (decision === "approve") {
-    return currentFinalScore;
+    return baseScore;
   }
 
   if (decision === "adjust") {
-    return Math.max(currentFinalScore - 5, 0);
+    return Math.max(baseScore - 5, 0);
   }
 
   return 0;
@@ -223,3 +364,32 @@ function toDecisionLabel(decision: DecideReviewPayload["decision"]) {
 
   return "已退回";
 }
+
+function toScoreLabel(score: number | null) {
+  if (score == null) {
+    return "终评分 待生成";
+  }
+
+  return `终评分 ${score}`;
+}
+
+const sectionStyle: CSSProperties = { marginTop: 24, padding: "clamp(18px, 3vw, 24px)", border: "1px solid rgba(150,178,221,0.2)", borderRadius: 12, background: "rgba(12,23,45,0.78)", boxShadow: "0 5px 0 rgba(3,6,14,0.42)" };
+const sectionHeaderStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 18 };
+const eyebrowStyle: CSSProperties = { display: "block", color: "#8998b5", fontFamily: "var(--font-pixel)", fontSize: 9, fontWeight: 800, letterSpacing: "0.12em" };
+const sectionTitleStyle: CSSProperties = { margin: "3px 0 0", color: "#fff", fontFamily: "var(--font-pixel)", fontSize: 20, fontWeight: 900 };
+const queueCountBadgeStyle: CSSProperties = { padding: "4px 9px", border: "1px solid rgba(154,175,255,0.34)", borderRadius: 999, background: "rgba(118,146,255,0.1)", color: "#cdd7ff", fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" };
+const summaryGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: 10, marginBottom: 20 };
+const summaryCardStyle: CSSProperties = { position: "relative", display: "flex", minHeight: 70, alignItems: "center", gap: 10, padding: "14px 14px", border: "1px solid", borderTop: "3px solid", borderRadius: 6, boxShadow: "inset 0 1px rgba(255,255,255,0.03)" };
+const summaryDotStyle: CSSProperties = { width: 8, height: 8, flex: "0 0 8px", borderRadius: 2 };
+const reviewListStyle: CSSProperties = { display: "grid", gap: 12, margin: 0, padding: 0, listStyle: "none" };
+const reviewItemStyle: CSSProperties = { padding: "clamp(16px, 3vw, 21px)", border: "1px solid rgba(150,178,221,0.18)", borderLeft: "4px solid", borderRadius: 7, background: "linear-gradient(145deg, rgba(27,43,76,0.72), rgba(12,23,45,0.74))", boxShadow: "0 3px 0 rgba(3,6,14,0.36)" };
+const reviewItemHeaderStyle: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 12 };
+const submissionLabelStyle: CSSProperties = { display: "block", marginBottom: 3, maxWidth: "min(58vw, 420px)", overflow: "hidden", color: "#7183a4", fontFamily: "var(--font-pixel)", fontSize: 9, letterSpacing: "0.06em", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+const studentNameStyle: CSSProperties = { color: "#fff", fontFamily: "var(--font-pixel)", fontSize: 16, fontWeight: 900 };
+const statusBadgeStyle: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", border: "1px solid", borderRadius: 999, fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" };
+const metadataStyle: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 };
+const metadataChipStyle: CSSProperties = { padding: "3px 7px", border: "1px solid rgba(150,178,221,0.15)", borderRadius: 4, background: "rgba(5,11,24,0.26)", color: "#9ba9c1", fontSize: 11 };
+const rationaleStyle: CSSProperties = { margin: "0 0 15px", padding: "11px 12px", borderLeft: "2px solid rgba(154,175,255,0.28)", background: "rgba(5,11,24,0.2)", color: "#aebbd3", fontSize: 13, lineHeight: 1.55 };
+const decisionRowStyle: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8 };
+const feedbackStyle: CSSProperties = { margin: "10px 0 0", fontSize: 12, fontWeight: 700 };
+const emptyStateStyle: CSSProperties = { display: "grid", justifyItems: "center", gap: 5, padding: "28px 16px", border: "1px dashed rgba(150,178,221,0.24)", borderRadius: 7, background: "rgba(5,11,24,0.2)", textAlign: "center" };

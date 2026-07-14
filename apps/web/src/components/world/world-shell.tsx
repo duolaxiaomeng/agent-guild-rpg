@@ -16,23 +16,13 @@ import {
   fetchAgentAvatarsSafe,
   fetchAgentAvatarsSafeWithToken,
   getQuestListSafe,
-  getActiveClassroomSafe,
   type AgentAvatar,
   type QuestSummary,
 } from "../../lib/api-client";
-import type { ClassroomSnapshot } from "contracts";
-import { StudentClassroomBanner } from "../classroom/student-classroom-banner";
 import { toDayLabel } from "../../lib/format";
 import { clearSession, loadSession } from "../../lib/session";
 import { WORLD_HUD_SAFE_AREAS } from "./world-hud";
-
-/** Derive WebSocket URL from the current page origin (works in any environment). */
-function getWsUrl(): string {
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:3001`;
-  }
-  return "http://localhost:3001";
-}
+import { getRealtimeUrl } from "../../lib/realtime-url";
 
 /** Find an NPC definition by id across all zones. */
 function findNpcById(npcId: string): { npc: NpcDef; zoneId: string } | undefined {
@@ -50,17 +40,19 @@ function toQuestStatusLabel(status: QuestSummary["status"]): string {
 }
 
 const floatBtn: React.CSSProperties = {
-  padding: "7px 12px",
-  border: "1px solid rgba(255,255,255,0.28)",
-  borderRadius: "6px",
-  background: "rgba(7,13,28,0.66)",
-  color: "#fff",
+  minHeight: 34,
+  padding: "7px 11px",
+  border: "1px solid rgba(148, 210, 255, 0.32)",
+  borderRadius: "4px",
+  background: "linear-gradient(180deg, rgba(20,35,66,.94), rgba(7,13,28,.94))",
+  color: "#e0f2fe",
   cursor: "pointer",
-  fontSize: "14px",
+  fontSize: "12px",
   fontWeight: 700,
   textDecoration: "none",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+  boxShadow: "0 3px 0 rgba(2,6,23,.78), inset 0 1px 0 rgba(255,255,255,.08)",
   backdropFilter: "blur(8px)",
+  transition: "transform 120ms ease, border-color 120ms ease, color 120ms ease",
 };
 
 export function syncWorldScene(
@@ -90,8 +82,6 @@ export function WorldShell() {
   const [quests, setQuests] = useState<QuestSummary[]>([]);
   const [gameReady, setGameReady] = useState(false);
   const [studentId, setStudentId] = useState("student-1");
-  const [classroomSnapshot, setClassroomSnapshot] = useState<ClassroomSnapshot | null>(null);
-  const [classroomToken, setClassroomToken] = useState("");
   const gameRef = useRef<DestroyableGame | undefined>(undefined);
   const currentSceneRef = useRef<string>(ZONE_SCENE_KEYS["lobby"]);
   const avatarsRef = useRef<AgentAvatar[]>([]);
@@ -109,10 +99,6 @@ export function WorldShell() {
     const token = session?.token;
     if (session?.user.role === "student") {
       setStudentId(session.user.id);
-      setClassroomToken(token ?? "");
-      if (token) {
-        getActiveClassroomSafe(token).then(({ data }) => setClassroomSnapshot(data)).catch(() => {});
-      }
     }
     getQuestListSafe(token).then(({ data }) => setQuests(data)).catch(() => {});
   }, []);
@@ -160,12 +146,19 @@ export function WorldShell() {
       const session = loadSession();
       const token = session?.token;
 
-      socket = io(getWsUrl(), {
+      socket = io(getRealtimeUrl(), {
         transports: ["websocket"],
         autoConnect: true,
         reconnection: true,
         reconnectionAttempts: 3,
         auth: token ? { token } : undefined,
+        withCredentials: true,
+      });
+
+      socket.on("connect", () => {
+        for (const zone of ZONE_DEFS) {
+          socket?.emit("zone:subscribe", { zone: zone.id });
+        }
       });
 
       socket.on("agent-status:update", (payload: {
@@ -299,7 +292,8 @@ export function WorldShell() {
       data-hud-safe-bottom={WORLD_HUD_SAFE_AREAS.bottom}
       style={{
         width: "100%",
-        height: "100vh",
+        height: "100%",
+        minHeight: 0,
         position: "relative",
         "--world-hud-safe-top": `${WORLD_HUD_SAFE_AREAS.top}px`,
         "--world-hud-safe-bottom": `${WORLD_HUD_SAFE_AREAS.bottom}px`,
@@ -321,11 +315,11 @@ export function WorldShell() {
           flexDirection: "row",
           gap: "4px",
           padding: "4px",
-          background: "rgba(7,13,28,0.76)",
-          border: "1px solid rgba(255,255,255,0.18)",
-          borderRadius: "6px",
+          background: "linear-gradient(180deg, rgba(16,31,58,.94), rgba(5,11,25,.94))",
+          border: "1px solid rgba(125,211,252,.35)",
+          borderRadius: "5px",
           transform: "translateX(-50%)",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+          boxShadow: "0 4px 0 rgba(2,6,23,.72), 0 12px 30px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.08)",
           backdropFilter: "blur(8px)",
           pointerEvents: "none",
         }}
@@ -333,9 +327,12 @@ export function WorldShell() {
         {ZONE_DEFS.map((zone) => (
           <button
             key={zone.id}
+            id={`world-zone-tab-${zone.id}`}
             role="tab"
             aria-selected={activeZone === zone.id}
+            aria-controls={PIXEL_WORLD_MOUNT_ID}
             onClick={() => switchZone(zone.id)}
+            className="world-zone-tab"
             style={{
               pointerEvents: "auto",
               padding: "7px 12px",
@@ -343,16 +340,18 @@ export function WorldShell() {
                 activeZone === zone.id
                   ? "1px solid rgba(255,255,255,0.72)"
                   : "1px solid rgba(255,255,255,0.14)",
-              borderRadius: "4px",
+              borderRadius: "3px",
               background:
                 activeZone === zone.id
-                  ? "rgba(255,255,255,0.24)"
+                  ? "linear-gradient(180deg, rgba(14,116,144,.78), rgba(8,47,73,.92))"
                   : "rgba(4,8,18,0.46)",
-              color: "#fff",
+              color: activeZone === zone.id ? "#e0f2fe" : "#cbd5e1",
               cursor: "pointer",
               fontSize: "14px",
               fontWeight: activeZone === zone.id ? "bold" : "normal",
               backdropFilter: "blur(8px)",
+              boxShadow: activeZone === zone.id ? "inset 0 -2px 0 #38bdf8" : "none",
+              transition: "background 120ms ease, color 120ms ease, transform 120ms ease",
             }}
           >
             {zone.emoji} {zone.label}
@@ -374,13 +373,13 @@ export function WorldShell() {
           alignItems: "center",
         }}
       >
-        <Link href="/agent-team" style={floatBtn}>
+        <Link href="/agent-team" className="world-hud-action world-team-action" style={floatBtn}>
           🤖 战队
         </Link>
-        <Link href="/teacher" style={floatBtn}>
+        <Link href="/teacher" className="world-hud-action world-course-action" style={floatBtn}>
           📚 课程
         </Link>
-        <button onClick={handleLogout} style={floatBtn}>
+        <button onClick={handleLogout} className="world-hud-action world-logout-action" style={floatBtn}>
           🚪 退出
         </button>
       </div>
@@ -388,22 +387,24 @@ export function WorldShell() {
       {/* World channel floating button — bottom left */}
       <Link
         href="/chat"
+        className="world-quick-action world-chat-action"
         style={{
           position: "absolute",
           bottom: 24,
           left: 24,
           zIndex: 10,
-          padding: "9px 14px",
-          background: "rgba(15, 87, 118, 0.82)",
-          border: "1px solid rgba(255,255,255,0.32)",
-          borderRadius: "6px",
+          padding: "10px 14px",
+          background: "linear-gradient(180deg, rgba(14,116,144,.94), rgba(8,47,73,.96))",
+          border: "1px solid rgba(125,211,252,.5)",
+          borderRadius: "4px",
           color: "#fff",
           cursor: "pointer",
           fontSize: "14px",
           fontWeight: "bold",
           textDecoration: "none",
           backdropFilter: "blur(8px)",
-          boxShadow: "0 10px 28px rgba(0,0,0,0.22)",
+          boxShadow: "0 4px 0 rgba(2,36,54,.9), 0 10px 28px rgba(0,0,0,.22)",
+          transition: "transform 120ms ease, filter 120ms ease",
         }}
       >
         💬 世界频道
@@ -412,6 +413,9 @@ export function WorldShell() {
       {/* Quest log floating button — bottom right */}
       <button
         onClick={() => setQuestLogOpen(!questLogOpen)}
+        aria-expanded={questLogOpen}
+        aria-controls="world-quest-log"
+        className="world-quick-action world-quest-action"
         style={{
           position: "absolute",
           bottom: 24,
@@ -422,13 +426,14 @@ export function WorldShell() {
             ? "rgba(171, 104, 18, 0.9)"
             : "rgba(7,13,28,0.68)",
           border: "1px solid rgba(255,255,255,0.32)",
-          borderRadius: "6px",
+          borderRadius: "4px",
           color: "#fff",
           cursor: "pointer",
           fontSize: "14px",
           fontWeight: "bold",
           backdropFilter: "blur(8px)",
-          boxShadow: "0 10px 28px rgba(0,0,0,0.22)",
+          boxShadow: "0 4px 0 rgba(2,6,23,.78), 0 10px 28px rgba(0,0,0,.22)",
+          transition: "transform 120ms ease, filter 120ms ease",
         }}
       >
         📋 任务日志
@@ -436,24 +441,31 @@ export function WorldShell() {
 
       {/* Quest log slide-out panel */}
       <div
+        id="world-quest-log"
         role="region"
         aria-label="任务日志"
+        aria-hidden={!questLogOpen}
         style={{
           position: "absolute",
           top: 0,
           right: 0,
           bottom: 0,
-          width: 320,
-          background: "rgba(0,0,0,0.8)",
+          width: "min(340px, 92vw)",
+          background: "linear-gradient(180deg, rgba(9,18,38,.98), rgba(3,8,20,.98))",
           zIndex: 15,
           padding: "64px 16px 16px",
           transform: questLogOpen ? "translateX(0)" : "translateX(100%)",
           transition: "transform 0.3s ease",
           overflowY: "auto",
           color: "#fff",
+          borderLeft: "1px solid rgba(125,211,252,.28)",
+          boxShadow: "-18px 0 40px rgba(0,0,0,.38)",
         }}
       >
-        <h2 style={{ margin: "0 0 16px", fontSize: "18px" }}>📋 任务日志</h2>
+        <div style={{ marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid rgba(148,163,184,.16)" }}>
+          <span style={{ display: "block", color: "#7dd3fc", fontSize: 9, fontWeight: 800, letterSpacing: ".18em" }}>QUEST TERMINAL</span>
+          <h2 style={{ margin: "4px 0 0", fontSize: "18px" }}>📋 任务日志</h2>
+        </div>
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {quests.length === 0 ? (
             <li style={{ padding: "12px", opacity: 0.5, fontSize: "13px" }}>
@@ -472,8 +484,9 @@ export function WorldShell() {
                       ? "rgba(251, 191, 36, 0.2)"
                       : "rgba(255,255,255,0.05)",
                     border: `1px solid ${isActive ? "rgba(251, 191, 36, 0.5)" : "rgba(255,255,255,0.15)"}`,
-                    borderRadius: "6px",
+                    borderRadius: "4px",
                     opacity: isActive ? 1 : 0.5,
+                    boxShadow: isActive ? "inset 3px 0 0 #fbbf24" : "none",
                   }}
                 >
                   <p
@@ -501,17 +514,11 @@ export function WorldShell() {
         </ul>
       </div>
 
-      {classroomSnapshot && classroomToken ? (
-        <StudentClassroomBanner
-          snapshot={classroomSnapshot}
-          token={classroomToken}
-          studentId={studentId}
-        />
-      ) : null}
-
       {/* Phaser mount — full screen */}
       <div
         id={PIXEL_WORLD_MOUNT_ID}
+        role="tabpanel"
+        aria-labelledby={`world-zone-tab-${activeZone}`}
         aria-label="像素世界画布"
         style={{ width: "100%", height: "100%" }}
       >
@@ -549,6 +556,33 @@ export function WorldShell() {
             />
           );
         })()}
+      <style>{`
+        .world-zone-tab:hover,
+        .world-hud-action:hover,
+        .world-quick-action:hover {
+          filter: brightness(1.14);
+          transform: translateY(-1px);
+        }
+        .world-zone-tab:focus-visible,
+        .world-hud-action:focus-visible,
+        .world-quick-action:focus-visible {
+          outline: 2px solid #7dd3fc;
+          outline-offset: 2px;
+        }
+        .world-hud-action:active,
+        .world-quick-action:active { transform: translateY(2px); }
+        @media (max-width: 760px) {
+          .world-toolbar .world-hud-action::before { content: none !important; }
+          .world-toolbar .world-team-action::after { content: "🤖"; font-size: 16px; }
+          .world-toolbar .world-course-action::after { content: "📚"; font-size: 16px; }
+          .world-toolbar .world-logout-action::after { content: "🚪"; font-size: 16px; }
+          .world-toolbar .world-hud-action { display: inline-flex; align-items: center; justify-content: center; }
+          .world-quick-action { bottom: 16px !important; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .world-zone-tab, .world-hud-action, .world-quick-action { transition: none !important; }
+        }
+      `}</style>
     </section>
   );
 }

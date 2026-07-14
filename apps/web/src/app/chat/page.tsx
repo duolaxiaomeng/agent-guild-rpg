@@ -25,72 +25,107 @@ export const dynamic = "force-dynamic";
 
 const pageStyle: CSSProperties = {
   minHeight: "100vh",
-  background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
+  background:
+    "linear-gradient(rgba(56,189,248,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(56,189,248,.035) 1px, transparent 1px), radial-gradient(circle at 82% 8%, rgba(14,165,233,.14), transparent 28%), linear-gradient(145deg, #07101f 0%, #10172e 52%, #071525 100%)",
+  backgroundSize: "28px 28px, 28px 28px, auto, auto",
   fontFamily:
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  color: "#e2e8f0",
 };
 
 const containerStyle: CSSProperties = {
-  maxWidth: "960px",
+  maxWidth: "1080px",
   margin: "0 auto",
-  padding: "32px 24px 64px",
+  padding: "30px 24px 72px",
 };
 
 const pageTitleStyle: CSSProperties = {
-  fontSize: "28px",
-  fontWeight: "700",
+  fontSize: "clamp(26px, 5vw, 38px)",
+  fontWeight: "800",
   color: "#fff",
-  marginBottom: "8px",
-  letterSpacing: "-0.02em",
+  margin: "8px 0",
+  letterSpacing: "-0.035em",
+  textShadow: "3px 3px 0 rgba(2,6,23,.72)",
 };
 
 const pageSubtitleStyle: CSSProperties = {
   fontSize: "14px",
-  color: "rgba(255, 255, 255, 0.5)",
-  marginBottom: "32px",
+  color: "#94a3b8",
+  margin: "0 0 24px",
+  lineHeight: 1.7,
 };
 
 const degradedBannerStyle: CSSProperties = {
-  background: "rgba(239, 68, 68, 0.1)",
-  border: "1px solid rgba(239, 68, 68, 0.3)",
-  borderRadius: "8px",
+  background: "rgba(69, 10, 10, 0.5)",
+  border: "1px solid rgba(248, 113, 113, 0.42)",
+  borderRadius: "5px",
   padding: "12px 16px",
   marginBottom: "24px",
-  color: "#f87171",
+  color: "#fecaca",
   fontSize: "14px",
+  boxShadow: "0 4px 0 rgba(28,5,5,.42)",
 };
 
 const accessibleSectionStyle: CSSProperties = {
   marginTop: "24px",
-  background: "rgba(255, 255, 255, 0.05)",
-  border: "1px solid rgba(255, 255, 255, 0.1)",
-  borderRadius: "12px",
-  padding: "20px 24px",
+  background: "linear-gradient(145deg, rgba(17,34,61,.9), rgba(8,17,35,.92))",
+  border: "1px solid rgba(125,211,252,.22)",
+  borderRadius: "7px",
+  padding: "22px 24px",
+  boxShadow: "0 6px 0 rgba(2,6,23,.46)",
 };
 
 const accessibleSectionTitleStyle: CSSProperties = {
   fontSize: "16px",
-  fontWeight: "600",
+  fontWeight: "800",
   color: "#fff",
-  marginBottom: "16px",
+  margin: "0 0 16px",
 };
 
 const accessibleRoomLinkStyle: CSSProperties = {
-  display: "block",
-  padding: "10px 14px",
-  marginBottom: "8px",
-  background: "rgba(99, 102, 241, 0.12)",
-  border: "1px solid rgba(99, 102, 241, 0.3)",
-  borderRadius: "8px",
-  color: "#a5b4fc",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  minHeight: 42,
+  padding: "10px 13px",
+  background: "rgba(8,47,73,.34)",
+  border: "1px solid rgba(125,211,252,.25)",
+  borderRadius: "4px",
+  color: "#bae6fd",
   fontSize: "14px",
   textDecoration: "none",
-  transition: "background 0.2s",
+  boxShadow: "0 3px 0 rgba(2,6,23,.36)",
+  transition: "background 120ms ease, transform 120ms ease, border-color 120ms ease",
 };
 
 const emptyStateStyle: CSSProperties = {
-  color: "rgba(255, 255, 255, 0.6)",
+  color: "#94a3b8",
   fontSize: "14px",
+};
+
+const entryCardStyle: CSSProperties = {
+  position: "relative",
+  overflow: "hidden",
+  padding: "26px clamp(20px, 5vw, 40px)",
+  background: "linear-gradient(145deg, rgba(16,34,62,.94), rgba(12,18,42,.94))",
+  border: "1px solid rgba(125,211,252,.26)",
+  borderRadius: 7,
+  boxShadow: "0 7px 0 rgba(2,6,23,.52), 0 24px 54px rgba(2,6,23,.26)",
+};
+
+const backLinkStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  marginBottom: 18,
+  padding: "7px 10px",
+  color: "#bae6fd",
+  background: "rgba(8,47,73,.32)",
+  border: "1px solid rgba(125,211,252,.24)",
+  borderRadius: 4,
+  boxShadow: "0 3px 0 rgba(2,6,23,.4)",
+  textDecoration: "none",
+  fontSize: 12,
 };
 
 /* ────────────────────────────────────────────
@@ -137,8 +172,12 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       <main style={pageStyle} data-scrollable="true">
         <div style={containerStyle}>
           <SessionBanner />
-          <h1 style={pageTitleStyle}>个人聊天室</h1>
-          <p style={emptyStateStyle}>请先登录学生账号。</p>
+          <div style={{ ...entryCardStyle, marginTop: 26 }}>
+            <span style={{ color: "#7dd3fc", fontSize: 10, fontWeight: 800, letterSpacing: ".18em" }}>ROOM NETWORK / LOGIN REQUIRED</span>
+            <h1 style={pageTitleStyle}>个人聊天室</h1>
+            <p style={emptyStateStyle}>请先登录学生账号。</p>
+            <Link href="/login" style={{ ...backLinkStyle, margin: "18px 0 0" }}>前往登录 →</Link>
+          </div>
         </div>
       </main>
     );
@@ -149,8 +188,11 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       <main style={pageStyle} data-scrollable="true">
         <div style={containerStyle}>
           <SessionBanner />
-          <h1 style={pageTitleStyle}>个人聊天室</h1>
-          <p style={{ color: "#fbbf24" }}>教学 API 暂不可达，请稍后刷新重试。</p>
+          <div style={{ ...entryCardStyle, marginTop: 26 }}>
+            <span style={{ color: "#fbbf24", fontSize: 10, fontWeight: 800, letterSpacing: ".18em" }}>ROOM NETWORK / OFFLINE</span>
+            <h1 style={pageTitleStyle}>个人聊天室</h1>
+            <p style={{ color: "#fde68a" }}>教学 API 暂不可达，请稍后刷新重试。</p>
+          </div>
         </div>
       </main>
     );
@@ -163,8 +205,10 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       <main style={pageStyle} data-scrollable="true">
         <div style={containerStyle}>
           <SessionBanner />
-          <h1 style={pageTitleStyle}>个人聊天室</h1>
-          <p style={emptyStateStyle}>当前账号无权进入个人聊天室。</p>
+          <div style={{ ...entryCardStyle, marginTop: 26 }}>
+            <h1 style={pageTitleStyle}>个人聊天室</h1>
+            <p style={emptyStateStyle}>当前账号无权进入个人聊天室。</p>
+          </div>
         </div>
       </main>
     );
@@ -182,8 +226,11 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       <main style={pageStyle} data-scrollable="true">
         <div style={containerStyle}>
           <SessionBanner />
-          <h1 style={pageTitleStyle}>Teacher 观察</h1>
-          <p style={emptyStateStyle}>请从教师工作台选择学生房间。</p>
+          <div style={{ ...entryCardStyle, marginTop: 26 }}>
+            <h1 style={pageTitleStyle}>Teacher 观察</h1>
+            <p style={emptyStateStyle}>请从教师工作台选择学生房间。</p>
+            <Link href="/teacher" style={{ ...backLinkStyle, margin: "18px 0 0" }}>返回教师工作台 →</Link>
+          </div>
         </div>
       </main>
     );
@@ -231,6 +278,9 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     <main style={pageStyle} data-scrollable="true">
       <div style={containerStyle}>
         <SessionBanner />
+        <nav aria-label="聊天室路径" style={{ marginTop: 24 }}>
+          <Link href="/" style={backLinkStyle}>← 返回主城区</Link>
+        </nav>
         {chatDegraded || questsDegraded || grantsDegraded || accessibleDegraded ? (
           <div style={degradedBannerStyle}>聊天、授权与关卡数据暂不可达，当前显示安全空态。</div>
         ) : null}
@@ -269,21 +319,36 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
         </div>
         {effectiveViewerRole === "owner" && accessibleRooms.length > 0 ? (
           <section style={accessibleSectionStyle}>
+            <span style={{ display: "block", color: "#7dd3fc", fontSize: 9, fontWeight: 800, letterSpacing: ".18em", marginBottom: 5 }}>AUTHORIZED ROOMS</span>
             <h2 style={accessibleSectionTitleStyle}>我可进入的协作房间</h2>
-            <div>
+            <div className="accessible-room-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 10 }}>
               {accessibleRooms.map((room) => (
                 <Link
                   key={room.roomId}
                   href={`/chat?roomId=${room.roomId}`}
                   style={accessibleRoomLinkStyle}
                 >
-                  进入 {room.ownerName} 的房间
+                  <span>进入 {room.ownerName} 的房间</span>
+                  <span aria-hidden="true">↗</span>
                 </Link>
               ))}
             </div>
           </section>
         ) : null}
       </div>
+      <style>{`
+        a[href="/"]:hover, a[href="/login"]:hover, a[href="/teacher"]:hover,
+        .accessible-room-grid a:hover {
+          filter: brightness(1.15);
+          transform: translateY(-1px);
+          border-color: rgba(125,211,252,.48) !important;
+        }
+        a[href="/"]:focus-visible, a[href="/login"]:focus-visible, a[href="/teacher"]:focus-visible,
+        .accessible-room-grid a:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+        @media (max-width: 620px) {
+          .accessible-room-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </main>
   );
 }

@@ -4,16 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
+    "start": "next start --port 3000 --hostname 0.0.0.0",
     "dev:e2e": "next dev --port 3100",
+    "start:e2e": "next start --port 3100",
+    "e2e:server": "pnpm build && pnpm start:e2e",
     "build": "next build",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "contracts": "workspace:*",
     "next": "^15.4.0",
     "phaser": "^3.90.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

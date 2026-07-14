@@ -15,6 +15,7 @@ import type {
   HelpRequest
 } from "contracts";
 import { PrismaService } from "../../prisma/prisma.service";
+import { hashSessionToken } from "../auth/auth.service";
 
 /**
  * Presence update payload broadcasted to clients in a specific zone.
@@ -82,6 +83,10 @@ export type ClassroomHelpUpdatePayload = {
   } & Partial<Omit<HelpRequest, "id" | "status">>;
 };
 
+const realtimeAllowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+  : ["http://localhost:3000", "http://localhost:3100"];
+
 /** Interval for periodic session-expiry checks (milliseconds). */
 const SESSION_CHECK_INTERVAL_MS = 60_000;
 
@@ -104,7 +109,7 @@ const SESSION_CHECK_INTERVAL_MS = 60_000;
  * client is disconnected automatically.
  */
 @WebSocketGateway({
-  cors: { origin: "*" }
+  cors: { origin: realtimeAllowedOrigins, credentials: true }
 })
 @Injectable()
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -133,15 +138,31 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    * @param client The connecting Socket.IO socket.
    */
   async handleConnection(client: Socket) {
+    const cookieHeader = client.handshake.headers?.cookie;
+    const encodedCookieToken =
+      typeof cookieHeader === "string"
+        ? cookieHeader.match(/(?:^|;\s*)agent-guild-session-token=([^;]+)/)?.[1]
+        : undefined;
+    let cookieToken: string | undefined;
+    try {
+      cookieToken = encodedCookieToken
+        ? decodeURIComponent(encodedCookieToken)
+        : undefined;
+    } catch {
+      client.disconnect();
+      return;
+    }
     const token =
-      client.handshake.auth?.token || client.handshake.query?.token;
+      client.handshake.auth?.token ||
+      client.handshake.query?.token ||
+      cookieToken;
     if (!token) {
       client.disconnect();
       return;
     }
 
     const session = await this.prisma.userSession.findUnique({
-      where: { token: String(token) }
+      where: { token: hashSessionToken(String(token)) }
     });
 
     if (!session || session.expiresAt < new Date()) {
@@ -162,7 +183,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const timer = setInterval(async () => {
       try {
         const current = await this.prisma.userSession.findUnique({
-          where: { token: String(token) }
+          where: { token: hashSessionToken(String(token)) }
         });
         if (!current || current.expiresAt < new Date()) {
           this.logger.log(
@@ -213,11 +234,45 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!data?.roomId) {
       return { error: "roomId is required" };
     }
+    const userId = client.data?.userId;
+    if (!userId) {
+      return { error: "Authentication required" };
+    }
+    if (!(await this.canSubscribeToChatRoom(String(userId), data.roomId))) {
+      return { error: "forbidden" };
+    }
     await client.join(data.roomId);
     this.logger.log(
       `Client ${client.id} subscribed to chat room: ${data.roomId}`
     );
     return { roomId: data.roomId };
+  }
+
+  private async canSubscribeToChatRoom(userId: string, roomId: string) {
+    if (!roomId.startsWith("room-chat-")) return false;
+    const ownerId = roomId.slice("room-chat-".length);
+    if (!ownerId) return false;
+
+    const user = await this.prisma.user?.findUnique?.({
+      where: { id: userId },
+      select: { role: true }
+    });
+    const owner = await this.prisma.user?.findUnique?.({
+      where: { id: ownerId },
+      select: { role: true }
+    });
+    if (!user || owner?.role !== "student") return false;
+    if (userId === ownerId || user.role === "teacher") return true;
+
+    const grant = await this.prisma.roomAccessGrant?.findFirst?.({
+      where: {
+        roomId,
+        granteeId: userId,
+        status: "approved",
+        expiresAt: { gt: new Date() }
+      }
+    });
+    return Boolean(grant);
   }
 
   /**

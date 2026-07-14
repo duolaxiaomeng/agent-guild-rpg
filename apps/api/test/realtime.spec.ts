@@ -1,8 +1,98 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { RealtimeGateway } from "../src/modules/realtime/realtime.gateway";
 import { ReviewQueueService } from "../src/modules/queue/review.queue";
 
 describe("realtime gateway", () => {
+  it("hashes the raw handshake token before looking up a realtime session", async () => {
+    const findUnique = vi.fn().mockResolvedValue({
+      userId: "student-1",
+      expiresAt: new Date(Date.now() + 60_000)
+    });
+    const gateway = new RealtimeGateway({ userSession: { findUnique } } as never);
+    const client = {
+      id: "socket-auth",
+      handshake: { auth: { token: "session-raw-token" }, query: {} },
+      data: {},
+      join: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn()
+    } as any;
+
+    await gateway.handleConnection(client);
+    gateway.handleDisconnect(client);
+
+    expect(findUnique).toHaveBeenCalledWith({
+      where: {
+        token: createHash("sha256").update("session-raw-token").digest("hex")
+      }
+    });
+    expect(client.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("accepts the HttpOnly session cookie when handshake auth is unavailable", async () => {
+    const findUnique = vi.fn().mockResolvedValue({
+      userId: "student-1",
+      expiresAt: new Date(Date.now() + 60_000)
+    });
+    const gateway = new RealtimeGateway({ userSession: { findUnique } } as never);
+    const client = {
+      id: "socket-cookie-auth",
+      handshake: {
+        auth: {},
+        query: {},
+        headers: { cookie: "agent-guild-session-token=session-cookie-token" }
+      },
+      data: {},
+      join: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn()
+    } as any;
+
+    await gateway.handleConnection(client);
+    gateway.handleDisconnect(client);
+
+    expect(findUnique).toHaveBeenCalledWith({
+      where: {
+        token: createHash("sha256").update("session-cookie-token").digest("hex")
+      }
+    });
+    expect(client.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("rejects a student from subscribing to another student's chat room", async () => {
+    const gateway = new RealtimeGateway({
+      user: {
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+          Promise.resolve({ role: where.id === "student-1" ? "student" : "student" }))
+      },
+      roomAccessGrant: { findFirst: vi.fn().mockResolvedValue(null) }
+    } as never);
+    const client = {
+      data: { userId: "student-2" },
+      join: vi.fn()
+    } as any;
+
+    await expect(
+      gateway.handleChatSubscribe({ roomId: "room-chat-student-1" }, client)
+    ).resolves.toEqual({ error: "forbidden" });
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it("allows a teacher to subscribe to a student chat room", async () => {
+    const gateway = new RealtimeGateway({
+      user: {
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+          Promise.resolve({ role: where.id === "teacher-1" ? "teacher" : "student" }))
+      }
+    } as never);
+    const join = vi.fn().mockResolvedValue(undefined);
+    const client = { data: { userId: "teacher-1" }, join } as any;
+
+    await expect(
+      gateway.handleChatSubscribe({ roomId: "room-chat-student-1" }, client)
+    ).resolves.toEqual({ roomId: "room-chat-student-1" });
+    expect(join).toHaveBeenCalledWith("room-chat-student-1");
+  });
+
   it("emits a presence:update event with the latest player state", () => {
     const gateway = new RealtimeGateway({} as never);
     const emit = vi.fn();
@@ -116,6 +206,20 @@ describe("realtime gateway", () => {
 });
 
 describe("review queue service", () => {
+  it("fails fast when the default Redis queue is not configured", async () => {
+    const previousRedisUrl = process.env.REDIS_URL;
+    delete process.env.REDIS_URL;
+    try {
+      const service = new ReviewQueueService();
+      await expect(service.enqueue("submission-no-redis")).rejects.toThrow(
+        "REDIS_URL is not configured"
+      );
+    } finally {
+      if (previousRedisUrl === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = previousRedisUrl;
+    }
+  });
+
   it("returns a queued review job for a submission", async () => {
     const service = new ReviewQueueService(() => ({
       add: vi.fn().mockResolvedValue(undefined)

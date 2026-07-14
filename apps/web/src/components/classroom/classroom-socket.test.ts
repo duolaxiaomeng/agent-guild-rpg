@@ -23,12 +23,14 @@ describe("createClassroomSocket", () => {
     const onStageUpdate = vi.fn();
     const onHelpUpdate = vi.fn();
     fakeSocket.handlers.clear();
-    createClassroomSocket({ token: "token", sessionId: "class-1", initialVersion: 0, onStageUpdate, onHelpUpdate });
+    createClassroomSocket({ token: "token", sessionId: "class-1", initialVersion: 1, onStageUpdate, onHelpUpdate });
 
     trigger("classroom:stage:update", { sessionId: "class-1", version: 1, serverNow: "2026-07-12T09:00:00.000Z", currentStage: null });
     trigger("classroom:help:update", { sessionId: "class-1", version: 0, serverNow: "2026-07-12T09:00:00.000Z", helpRequest: { id: "help-1", status: "open" } });
+    trigger("classroom:help:update", { sessionId: "class-1", version: 1, serverNow: "2026-07-12T09:00:01.000Z", helpRequest: { id: "help-1", status: "resolved" } });
+    trigger("classroom:help:update", { sessionId: "class-1", version: 0, serverNow: "2026-07-12T09:00:02.000Z", helpRequest: { id: "help-2", status: "open" } });
 
     expect(onStageUpdate).toHaveBeenCalledTimes(1);
-    expect(onHelpUpdate).toHaveBeenCalledTimes(1);
+    expect(onHelpUpdate).toHaveBeenCalledTimes(3);
   });
 });

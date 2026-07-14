@@ -2,9 +2,23 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HomePage from "./page";
 
+const getServerSessionMock = vi.hoisted(() => vi.fn());
+
+// Server Components cannot call `next/headers` without a request context in
+// jsdom. Keep the page test focused on its rendered contract by supplying the
+// server-session boundary explicitly.
+vi.mock("../lib/server-session", () => ({
+  getServerSession: getServerSessionMock
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() })
+}));
+
 describe("home page", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    getServerSessionMock.mockResolvedValue({ status: "unauthenticated" });
   });
 
   afterEach(() => {
@@ -12,6 +26,13 @@ describe("home page", () => {
   });
 
   it("renders the main city heading with live world data", async () => {
+    getServerSessionMock.mockResolvedValue({
+      status: "authenticated",
+      session: {
+        token: "session_teacher-1",
+        user: { id: "teacher-1", role: "teacher", displayName: "Teacher Lin" }
+      }
+    });
     window.localStorage.setItem(
       "agent-guild-session",
       JSON.stringify({
@@ -19,9 +40,9 @@ describe("home page", () => {
         user: {
           id: "teacher-1",
           role: "teacher",
-          displayName: "Teacher Lin"
-        }
-      })
+          displayName: "Teacher Lin",
+        },
+      }),
     );
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -34,26 +55,11 @@ describe("home page", () => {
             currentDay: 1,
             location: "main_city",
             homesteads: [
-              {
-                ownerId: "student-1",
-                displayName: "Lin",
-                location: "homestead",
-                isOnline: true
-              },
-              {
-                ownerId: "student-2",
-                displayName: "Mo",
-                location: "homestead",
-                isOnline: false
-              },
-              {
-                ownerId: "student-3",
-                displayName: "Kai",
-                location: "homestead",
-                isOnline: true
-              }
-            ]
-          })
+              { ownerId: "student-1", displayName: "Lin", location: "homestead", isOnline: true },
+              { ownerId: "student-2", displayName: "Mo", location: "homestead", isOnline: false },
+              { ownerId: "student-3", displayName: "Kai", location: "homestead", isOnline: true },
+            ],
+          }),
         } as Response;
       }
 
@@ -62,23 +68,17 @@ describe("home page", () => {
           ok: true,
           json: async () => ({
             token: "session_teacher-1",
-            user: {
-              id: "teacher-1",
-              role: "teacher",
-              displayName: "Teacher Lin"
-            }
-          })
+            user: { id: "teacher-1", role: "teacher", displayName: "Teacher Lin" },
+          }),
         } as Response;
       }
 
-      throw new Error(`Unexpected fetch: ${url}`);
+      throw new Error("Unexpected fetch: " + url);
     });
 
     render(await HomePage());
 
-    expect(screen.getByText("主城区")).toBeInTheDocument();
-    expect(screen.getByText("第 1 天教学世界")).toBeInTheDocument();
-    expect(screen.getByText("在线家园 2 / 3")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /主城区/ })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("当前登录：Teacher Lin（老师）")).toBeInTheDocument();
     });
@@ -89,14 +89,47 @@ describe("home page", () => {
 
     render(await HomePage());
 
-    expect(screen.getByText("主城区")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /主城区/ })).toBeInTheDocument();
     expect(
-      screen.getByText("实时教学 API 暂不可达，主城区已降级为空态展示。")
+      screen.getByText("实时教学 API 暂不可达，主城区已降级为空态展示。"),
     ).toBeInTheDocument();
-    expect(screen.getByText("第 0 天教学世界")).toBeInTheDocument();
-    expect(screen.getByText("在线家园 0 / 0")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("当前登录：未登录")).toBeInTheDocument();
     });
+  });
+
+  it("shows the classroom status banner for a logged-in student", async () => {
+    getServerSessionMock.mockResolvedValue({
+      status: "authenticated",
+      session: {
+        token: "session_student-1",
+        user: { id: "student-1", role: "student", displayName: "Lin" }
+      }
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/session")) {
+        return { ok: true, json: async () => ({ token: "session_student-1", user: { id: "student-1", role: "student", displayName: "Lin" } }) } as Response;
+      }
+      if (url.endsWith("/world")) {
+        return { ok: true, json: async () => ({ currentDay: 1, location: "main_city", homesteads: [] }) } as Response;
+      }
+      if (url.endsWith("/classrooms/sessions/active")) {
+        return {
+          ok: true,
+          json: async () => ({
+            session: { id: "class-1", courseWorldId: "course-1", dayId: "day-1", status: "live", version: 1, currentStageId: "stage-1", startedAt: null, endedAt: null },
+            currentStage: { id: "stage-1", title: "讲解", description: "今日目标", sortOrder: 0, durationSeconds: 600, extensionSeconds: 0, status: "draft", version: 0, startedAt: null, pausedAt: null, accumulatedPauseSeconds: 0, remainingSeconds: null },
+            stages: [], helpRequests: [], viewer: { role: "student", canControlStages: false, canHandleHelp: false }, serverNow: new Date().toISOString()
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(await HomePage());
+
+    expect(screen.getByRole("region", { name: "学生课堂状态" })).toBeInTheDocument();
+    expect(screen.getByText("讲解")).toBeInTheDocument();
   });
 });

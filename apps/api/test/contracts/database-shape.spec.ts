@@ -38,6 +38,54 @@ describe("prisma database shape", () => {
     expect(schema).toContain("@@index([sessionId, createdAt])");
   });
 
+  it("contains teacher-published daily homework fields", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const questDayModel = schema.match(/model QuestDay \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(questDayModel).toMatch(/description\s+String/);
+    expect(questDayModel).toMatch(/homework\s+String/);
+    expect(questDayModel).toMatch(/acceptanceCriteria\s+Json/);
+    expect(questDayModel).toMatch(/dueAt\s+DateTime\?/);
+    expect(questDayModel).toMatch(/publishedAt\s+DateTime\?/);
+    expect(questDayModel).toMatch(/teacherId\s+String\?/);
+    expect(questDayModel).toContain('@relation("QuestDayTeacher"');
+    expect(questDayModel).toContain("@@index([courseWorldId, publishedAt])");
+    expect(questDayModel).toContain("@@index([teacherId, publishedAt])");
+  });
+
+  it("contains scoped agent memory fields and lookup indexes", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+
+    expect(schema).toContain("courseWorldId  String?");
+    expect(schema).toContain("roomId         String?");
+    expect(schema).toContain("agentSessionId String?");
+    expect(schema).toContain("taskId         String?");
+    expect(schema).toContain("@@index([studentId, courseWorldId])");
+    expect(schema).toContain("@@index([studentId, roomId])");
+    expect(schema).toContain("@@index([studentId, agentSessionId])");
+    expect(schema).toContain("@@index([studentId, taskId])");
+  });
+
+  it("contains persistent Agent orchestration snapshots", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+
+    expect(schema).toContain("model AgentRunSnapshot");
+    expect(schema).toContain("runId          String   @id");
+    expect(schema).toContain("dependencies   Json");
+    expect(schema).toContain("@@index([status, updatedAt])");
+  });
+
+  it("contains Day website lottery options and one draw per student", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+
+    expect(schema).toContain("model WebsiteLotteryOption");
+    expect(schema).toContain("model WebsiteLotteryDraw");
+    expect(schema).toContain("createdById String");
+    expect(schema).toContain("@@unique([dayId, studentId])");
+    expect(schema).toContain("@@unique([dayId, optionId])");
+    expect(schema).toContain("@@index([dayId, isActive, sortOrder])");
+  });
+
   it("seeds a starter course world scenario", () => {
     const seed = readFileSync(resolve(process.cwd(), "prisma/seed.ts"), "utf8");
 
@@ -50,5 +98,11 @@ describe("prisma database shape", () => {
     expect(seed).toContain("classroom-stage-briefing");
     expect(seed).toContain("classroomStaffAssignments");
     expect(seed).toContain('userId: "student-3"');
+    expect(seed).toContain("acceptanceCriteria");
+    expect(seed).toContain("连接自己的 Agent");
+    expect(seed).toContain("迭代 Prompt");
+    expect(seed).toContain("websiteLotteryOptions");
+    expect(seed).toContain("Agent 小红书笔记网站");
+    expect(seed).toContain("Agent 自定义主题");
   });
 });

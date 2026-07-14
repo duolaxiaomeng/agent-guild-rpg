@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ClassroomControlPanel } from "./classroom-control-panel";
 import { pauseClassroomStage, startClassroomStage } from "../../lib/api-client";
@@ -8,9 +8,10 @@ vi.mock("../../lib/api-client", async () => {
   return { ...actual, pauseClassroomStage: vi.fn(), startClassroomStage: vi.fn() };
 });
 
+const startedAt = new Date(Date.now() - 1000).toISOString();
 const snapshot = {
   session: { id: "class-1", courseWorldId: "course-1", dayId: "day-1", status: "live" as const, version: 3, currentStageId: "stage-1", startedAt: "2026-07-12T09:00:00.000Z", endedAt: null },
-  currentStage: { id: "stage-1", title: "个人实践", description: "完成今日切片", sortOrder: 0, durationSeconds: 1800, extensionSeconds: 0, status: "running" as const, version: 2, startedAt: "2026-07-12T09:00:00.000Z", pausedAt: null, accumulatedPauseSeconds: 0, remainingSeconds: 1200 },
+  currentStage: { id: "stage-1", title: "个人实践", description: "完成今日切片", sortOrder: 0, durationSeconds: 1800, extensionSeconds: 0, status: "running" as const, version: 2, startedAt, pausedAt: null, accumulatedPauseSeconds: 0, remainingSeconds: 1200 },
   stages: [],
   helpRequests: [],
   viewer: { role: "teacher" as const, canControlStages: true, canHandleHelp: true },
@@ -48,5 +49,26 @@ describe("ClassroomControlPanel", () => {
     expect(screen.getByText("讲解")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "开始" }));
     await waitFor(() => expect(startClassroomStage).toHaveBeenCalledWith("stage-draft", 7, "session_teacher-1"));
+  });
+
+  it("allows a paused stage to resume and does not expose invalid draft actions", () => {
+    const pausedStage = { ...snapshot.currentStage, status: "paused" as const, pausedAt: "2026-07-12T09:10:00.000Z" };
+    render(<ClassroomControlPanel snapshot={{ ...snapshot, currentStage: pausedStage }} token="session_teacher-1" />);
+
+    expect(screen.getByRole("button", { name: "开始" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "完成" })).toBeEnabled();
+
+    const draftStage = { ...pausedStage, status: "draft" as const, pausedAt: null, startedAt: null };
+    cleanup();
+    render(<ClassroomControlPanel snapshot={{ ...snapshot, currentStage: draftStage }} token="session_teacher-1" />);
+    expect(screen.getByRole("button", { name: "完成" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "解锁下一阶段" })).toBeDisabled();
+  });
+
+  it("labels a running stage with no remaining time as expired", () => {
+    const expiredStage = { ...snapshot.currentStage, remainingSeconds: 0, startedAt: "2026-07-12T08:00:00.000Z" };
+    render(<ClassroomControlPanel snapshot={{ ...snapshot, currentStage: expiredStage }} token="session_teacher-1" />);
+
+    expect(screen.getByText("时间到，可完成当前阶段")).toBeInTheDocument();
   });
 });
