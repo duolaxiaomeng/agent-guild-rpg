@@ -9,7 +9,7 @@
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter web test:e2e",
     "lint": "pnpm -r lint",
-    "build": "pnpm -r --workspace-concurrency=1 build",
+    "build": "npm --prefix packages/contracts run build && npm --prefix apps/api run build && npm --prefix apps/web run build && npm --prefix apps/agent-connector run build",
     "docker:build": "docker compose --env-file .env.docker build",
     "docker:up": "docker compose --env-file .env.docker up -d",
     "docker:down": "docker compose --env-file .env.docker down",
