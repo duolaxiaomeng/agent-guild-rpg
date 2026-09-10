@@ -14,6 +14,11 @@ import {
 import * as bcrypt from "bcrypt";
 
 export const seedScenario = {
+  studentCohort: {
+    id: "cohort-chuangshuo-agent-1",
+    name: "船说agent第一期班",
+    isActive: true
+  },
   courseWorld: {
     id: "course-world-1",
     name: "Agent Guild Academy",
@@ -35,7 +40,7 @@ export const seedScenario = {
       email: "lin@academy.test",
       passwordHash: "student-pass-123",
       displayName: "Lin",
-      isOnline: true
+      isOnline: false
     },
     {
       id: "student-2",
@@ -51,7 +56,7 @@ export const seedScenario = {
       email: "kai@academy.test",
       passwordHash: "student-pass-789",
       displayName: "Kai",
-      isOnline: true
+      isOnline: false
     }
   ],
   homesteads: [
@@ -95,6 +100,18 @@ export const seedScenario = {
     {
       id: "session-1",
       studentId: "student-1",
+      provider: "claude-code",
+      status: "active"
+    },
+    {
+      id: "session-2",
+      studentId: "student-2",
+      provider: "codex",
+      status: "active"
+    },
+    {
+      id: "session-3",
+      studentId: "student-3",
       provider: "claude-code",
       status: "active"
     }
@@ -204,10 +221,10 @@ export const seedScenario = {
     { id: "room-chat-student-1", homesteadId: "home-1", type: "chat_room", name: "Lin 的聊天室" }
   ],
   websiteLotteryOptions: [
-    { id: "lottery-option-portfolio", dayId: "day-1", label: "Agent 个人作品集网站", description: "让 Agent 展示个人技能、项目和联系方式。", sortOrder: 1, createdById: "teacher-1" },
-    { id: "lottery-option-short-video", dayId: "day-1", label: "Agent 短视频选题网站", description: "让 Agent 根据关键词和热点生成选题池。", sortOrder: 2, createdById: "teacher-1" },
-    { id: "lottery-option-xhs-note", dayId: "day-1", label: "Agent 小红书笔记网站", description: "让 Agent 生成标题、正文结构和标签建议。", sortOrder: 3, createdById: "teacher-1" },
-    { id: "lottery-option-custom", dayId: "day-1", label: "Agent 自定义主题", description: "由老师在课堂上补充具体 Agent 任务和约束。", sortOrder: 4, createdById: "teacher-1" }
+    { id: "lottery-option-portfolio", dayId: "day-1", label: "个人作品集网站", description: "展示个人技能、项目和联系方式。", sortOrder: 1, createdById: "teacher-1" },
+    { id: "lottery-option-short-video", dayId: "day-1", label: "短视频选题网站", description: "根据关键词、热点和个人定位整理选题池。", sortOrder: 2, createdById: "teacher-1" },
+    { id: "lottery-option-xhs-note", dayId: "day-1", label: "小红书笔记网站", description: "提供标题、封面文案、正文结构和标签建议。", sortOrder: 3, createdById: "teacher-1" },
+    { id: "lottery-option-custom", dayId: "day-1", label: "自定义网站主题", description: "由老师在课堂上补充具体的网站主题和功能约束。", sortOrder: 4, createdById: "teacher-1" }
   ],
   submissions: [
     {
@@ -219,7 +236,7 @@ export const seedScenario = {
       triggerType: "button" as const,
       conversationSummary: "与 Agent 讨论了基础配置方案，确认了工具链选型。",
       workSummary: "完成了 Day 1 的基础任务，实现了 Agent 的初始配置与第一轮 prompt 调试。",
-      artifacts: [{ kind: "code", label: "config.ts", url: "https://example.com/artifacts/sub-1/config.ts" }],
+      artifacts: [{ kind: "repo", label: "config.ts", url: "https://example.com/artifacts/sub-1/config.ts" }],
       selfReflection: "整体进展顺利，但在 prompt 结构上还需要进一步优化。",
       agentEvaluationHints: ["结构清晰", "缺少边界用例覆盖"],
       submittedAt: new Date(Date.now() - 86400000)
@@ -229,7 +246,7 @@ export const seedScenario = {
       studentId: "student-2",
       courseWorldId: "course-world-1",
       dayId: "day-1",
-      agentSessionId: "session-1",
+      agentSessionId: "session-2",
       triggerType: "chat_command" as const,
       conversationSummary: "通过聊天命令触发提交，讨论了 prompt 迭代策略。",
       workSummary: "完成了 prompt 模板设计，并进行了两轮对比测试。",
@@ -243,11 +260,11 @@ export const seedScenario = {
       studentId: "student-3",
       courseWorldId: "course-world-1",
       dayId: "day-1",
-      agentSessionId: "session-1",
+      agentSessionId: "session-3",
       triggerType: "schedule" as const,
       conversationSummary: "定时触发提交，汇总了今日所有 Agent 交互记录。",
       workSummary: "搭建了自动化测试框架的基础骨架，接入了 CI 流水线。",
-      artifacts: [{ kind: "code", label: "ci-pipeline.yml", url: "https://example.com/artifacts/sub-3/ci-pipeline.yml" }],
+      artifacts: [{ kind: "repo", label: "ci-pipeline.yml", url: "https://example.com/artifacts/sub-3/ci-pipeline.yml" }],
       selfReflection: "CI 接入比较顺利，遇到了环境变量问题已解决。",
       agentEvaluationHints: ["工程实践能力强", "文档有待补充"],
       submittedAt: new Date(Date.now() - 21600000)
@@ -392,6 +409,10 @@ export async function seedDatabase(prisma: PrismaClient) {
   await prisma.classroomSession.deleteMany();
   await prisma.agentMemory.deleteMany();
   await prisma.agentEvent.deleteMany();
+  await prisma.agentTaskAttempt.deleteMany();
+  await prisma.agentTaskDependency.deleteMany();
+  await prisma.agentTask.deleteMany();
+  await prisma.agentRunSnapshot.deleteMany();
   await prisma.agentConnector.deleteMany();
   await prisma.agentPairing.deleteMany();
   await prisma.userSession.deleteMany();
@@ -408,6 +429,11 @@ export async function seedDatabase(prisma: PrismaClient) {
   await prisma.questDay.deleteMany();
   await prisma.courseWorld.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.studentCohort.deleteMany();
+
+  await prisma.studentCohort.create({
+    data: seedScenario.studentCohort
+  });
 
   await prisma.courseWorld.create({
     data: seedScenario.courseWorld
@@ -421,7 +447,8 @@ export async function seedDatabase(prisma: PrismaClient) {
           passwordByEmail[user.email] ?? "the-password",
           10
         ),
-        role: userRoleMap[user.role]
+        role: userRoleMap[user.role],
+        cohortId: user.role === "student" ? seedScenario.studentCohort.id : null
       }))
     )
   });
@@ -493,8 +520,8 @@ export async function seedDatabase(prisma: PrismaClient) {
     data: seedScenario.submissions.map((sub) => ({
       ...sub,
       triggerType: SubmissionTriggerType[sub.triggerType],
-      artifacts: JSON.stringify(sub.artifacts),
-      agentEvaluationHints: JSON.stringify(sub.agentEvaluationHints)
+      artifacts: sub.artifacts.map((artifact) => ({ ...artifact })),
+      agentEvaluationHints: [...sub.agentEvaluationHints]
     }))
   });
 

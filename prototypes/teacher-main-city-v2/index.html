@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>教师主城区 · 真实办公室原型 v2</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app-bar">
+        <div class="brand"><span class="brand-mark">AG</span><div><span class="micro">TEACHER OBSERVATION MODE</span><strong>Agent Guild</strong></div></div>
+        <div class="bar-meta"><span class="live"><i></i>课堂实时</span><span>Day 02 · 09:42</span><button data-action="back">返回工作台</button></div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="profile-card"><div class="profile-avatar">师</div><div><strong>Teacher Lin</strong><span>教师 · 观察模式</span></div><b>在线</b></div>
+          <div class="side-heading"><span>WORLD MAP</span><small>我的主城区</small></div>
+          <nav class="zones" aria-label="主城区区域">
+            <button class="zone active" data-zone="lobby"><span class="zone-index">01</span><span><b>工作室大厅</b><small>接待 · 公告 · 入口</small></span><em>12</em></button>
+            <button class="zone" data-zone="workstations"><span class="zone-index">02</span><span><b>工位区</b><small>8 个 Agent 工作中</small></span><em>8</em></button>
+            <button class="zone" data-zone="collab"><span class="zone-index">03</span><span><b>协作室</b><small>3 个房间活跃</small></span><em>3</em></button>
+            <button class="zone" data-zone="review"><span class="zone-index">04</span><span><b>评审区</b><small>等待教师裁定</small></span><em class="amber">4</em></button>
+          </nav>
+          <div class="observation-note"><span>◉</span><p><b>只读观察</b>教师可以查看学生状态、任务和 Agent 活动，不会修改学生世界。</p></div>
+          <div class="side-footer"><span>SYNCED WITH CLASSROOM</span><strong>v0.2 prototype</strong></div>
+        </aside>
+
+        <section class="world-column">
+          <div class="world-heading"><div><span class="micro">MAIN CITY / WORKSHOP LOBBY</span><h1>我的主城区 <small>教师视角</small></h1></div><div class="heading-actions"><button data-action="toast">课堂控制</button><button data-action="toast">世界频道</button></div></div>
+          <div class="world-card">
+            <div class="office-room" id="office-room" data-scene="lobby">
+              <div class="room-header">
+                <div class="guild-board"><span class="crossed">✦</span><div><b>AGENT GUILD</b><small>教学 Agent 工作室</small></div></div>
+                <div class="wall-panel task-panel"><strong>TASK BOARD</strong><div class="sticky-row"><i></i><i></i><i></i><i></i></div><small>Day 02 · 12 active</small></div>
+                <div class="wall-panel status-panel"><strong>STATUS</strong><div><b>在线</b><span>12</span></div><div><b>工作中</b><span>8</span></div><div><b>需关注</b><span class="amber-text">3</span></div></div>
+                <div class="wall-panel announce-panel"><strong>ANNOUNCEMENT</strong><p>今日 Standup <b>10:00</b></p><p>Review Time <b>16:00</b></p></div>
+                <div class="plant plant-wall">♣</div>
+              </div>
+              <div class="room-floor">
+                <div class="floor-grid"></div>
+                <div class="floor-sign sign-a"><b>任务公告</b><small>完成一次 Agent 迭代</small></div>
+                <div class="floor-sign sign-b"><b>课堂状态</b><small>12 在线 · 3 需关注</small></div>
+                <div class="floor-emblem">AG</div>
+                <div class="reception-desk"><span>RECEPTION</span><i class="screen"></i><i class="lamp"></i></div>
+                <div class="plant plant-left">♣</div><div class="plant plant-right">♣</div>
+                <button class="actor actor-lin" data-student="Lin" aria-label="查看学生 Lin"><span class="hair"></span><span class="face"></span><span class="shirt"></span><b>Lin</b><small>工作中</small></button>
+                <button class="actor actor-mo" data-student="Mo" aria-label="查看学生 Mo"><span class="hair dark"></span><span class="face"></span><span class="shirt green"></span><b>Mo</b><small>在线</small></button>
+                <button class="actor actor-kai" data-student="Kai" aria-label="查看学生 Kai"><span class="hair purple"></span><span class="face"></span><span class="shirt violet"></span><b>Kai</b><small>需关注</small></button>
+                <div class="scene-hint"><span>⌁</span>点击人物查看教学状态</div>
+              </div>
+              <div class="room-bottom"><span><i class="dot blue"></i>学生在线</span><span><i class="dot green"></i>Agent 工作中</span><span><i class="dot amber"></i>需要关注</span><span class="scale-note">960 × 540 scene scale</span></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="inspector" id="inspector" aria-live="polite">
+          <div class="empty-state"><div class="target">◎</div><span class="micro">STUDENT INSPECTOR</span><h2>选择一名学生</h2><p>从办公室场景中点击一个人物，右侧会显示他的任务、Agent 和最近活动。</p></div>
+        </aside>
+      </div>
+      <div class="toast" id="toast"></div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

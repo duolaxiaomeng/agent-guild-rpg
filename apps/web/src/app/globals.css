@@ -816,7 +816,7 @@ main[data-scrollable="true"] {
   }
 
   .world-zone-nav {
-    right: 144px !important;
+    right: 188px !important;
     left: 8px !important;
     min-width: 0;
     max-width: none;
@@ -1004,15 +1004,123 @@ main[data-scrollable="true"] {
   box-shadow: 0 0 8px #4ade80;
 }
 
-.guild-main-nav {
-  display: flex;
-  gap: 4px;
-  margin-left: 8px;
-  padding-left: 9px;
-  border-left: 1px solid rgba(148, 163, 184, 0.2);
+.world-reward-panel {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  z-index: 31;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  color: #fef3c7;
+  transform: translateX(-50%);
 }
 
-.guild-main-nav a,
+.world-reward-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  margin: 0 auto;
+  padding: 6px 9px 6px 8px;
+  border: 1px solid rgba(253, 230, 138, 0.58);
+  border-radius: 5px;
+  background: linear-gradient(145deg, rgba(99, 67, 8, 0.96), rgba(44, 29, 4, 0.96));
+  color: #fff7d6;
+  box-shadow: 0 4px 0 rgba(24, 16, 2, 0.72), 0 12px 28px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.world-reward-toggle:hover {
+  border-color: #fde68a;
+  filter: brightness(1.08);
+}
+
+.world-reward-gift {
+  position: relative;
+  display: inline-block;
+  width: 24px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin-top: 4px;
+  border: 2px solid #fff1a8;
+  border-radius: 2px;
+  background: #d97706;
+  box-shadow: inset 0 -4px 0 rgba(92, 42, 4, 0.28);
+}
+
+.world-reward-gift::before {
+  position: absolute;
+  top: -7px;
+  left: -4px;
+  width: 28px;
+  height: 7px;
+  border: 2px solid #fff1a8;
+  border-radius: 2px;
+  background: #f59e0b;
+  content: "";
+}
+
+.world-reward-gift::after {
+  position: absolute;
+  top: -7px;
+  left: 8px;
+  width: 5px;
+  height: 23px;
+  background: #fde047;
+  content: "";
+}
+
+.world-reward-toggle__copy {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.world-reward-toggle__copy small {
+  color: #fde68a;
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  line-height: 1.2;
+}
+
+.world-reward-toggle__copy strong {
+  overflow: hidden;
+  max-width: 132px;
+  color: #fff;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.world-reward-toggle__chevron {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid rgba(253, 230, 138, 0.3);
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.3);
+  color: #fde68a;
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.world-reward-card {
+  width: min(330px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  margin-top: 9px;
+  padding: 14px;
+  overflow-y: auto;
+  border: 1px solid rgba(250, 204, 21, 0.48);
+  border-radius: 7px;
+  background: linear-gradient(145deg, rgba(61, 45, 8, 0.97), rgba(25, 17, 4, 0.97));
+  box-shadow: 0 5px 0 rgba(24, 16, 2, 0.72), 0 18px 40px rgba(0, 0, 0, 0.32);
+}
+
 .mission-rail__links a {
   color: #cbd5e1;
   font-size: 11px;
@@ -1021,12 +1129,6 @@ main[data-scrollable="true"] {
   transition: color 120ms ease, transform 120ms ease;
 }
 
-.guild-main-nav a {
-  padding: 5px 7px;
-  border-radius: 3px;
-}
-
-.guild-main-nav a:hover,
 .mission-rail__links a:hover {
   color: #fef3c7;
   transform: translateY(-1px);
@@ -1034,7 +1136,8 @@ main[data-scrollable="true"] {
 
 .mission-rail {
   position: absolute;
-  top: 82px;
+  top: auto;
+  bottom: 82px;
   left: 18px;
   z-index: 20;
   width: min(272px, calc(100vw - 36px));
@@ -1046,6 +1149,13 @@ main[data-scrollable="true"] {
   backdrop-filter: blur(10px);
 }
 
+.mission-rail__body {
+  max-height: calc(100vh - 250px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(125, 211, 252, 0.38) transparent;
+}
+
 .mission-rail__head,
 .mission-rail__stats,
 .mission-rail__links {
@@ -1055,7 +1165,63 @@ main[data-scrollable="true"] {
 
 .mission-rail__head {
   justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mission-rail__head::-webkit-details-marker {
+  display: none;
+}
+
+.mission-rail[open] .mission-rail__head {
   margin-bottom: 12px;
+}
+
+.mission-rail__head:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.78);
+  outline-offset: 5px;
+  border-radius: 3px;
+}
+
+.mission-rail__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mission-rail__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #93c5fd;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.mission-rail__toggle-collapsed {
+  display: none;
+}
+
+.mission-rail__toggle-icon {
+  display: inline-block;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  transition: transform 160ms ease;
+}
+
+.mission-rail:not([open]) .mission-rail__toggle-expanded {
+  display: none;
+}
+
+.mission-rail:not([open]) .mission-rail__toggle-collapsed {
+  display: inline;
+}
+
+.mission-rail:not([open]) .mission-rail__toggle-icon {
+  transform: rotate(180deg);
 }
 
 .mission-rail h2 {
@@ -1161,14 +1327,19 @@ main[data-scrollable="true"] {
 }
 
 @media (max-width: 900px) {
-  .guild-main-nav { display: none; }
   .guild-live-pill { margin-left: auto; }
 }
 
 @media (max-width: 720px) {
   .guild-topbar { top: 48px; left: 8px; right: 8px; }
-  .mission-rail { top: 108px; left: 8px; width: min(252px, calc(100vw - 16px)); padding: 12px; }
+  .mission-rail { top: auto; bottom: 76px; left: 8px; width: min(252px, calc(100vw - 16px)); padding: 12px; }
   .mission-rail__links { display: none; }
+  .world-reward-panel { top: 104px; max-width: calc(100vw - 16px); }
+  .world-reward-card {
+    width: min(340px, calc(100vw - 16px));
+    max-height: calc(100vh - 176px);
+    margin-top: 9px;
+  }
 }
 
 @media (max-width: 440px) {
@@ -1177,5 +1348,6 @@ main[data-scrollable="true"] {
   .guild-kicker { font-size: 7px; }
   .guild-title { font-size: 10px; }
   .guild-live-pill { font-size: 7px; }
-  .mission-rail { top: 98px; }
+  .mission-rail { top: auto; bottom: 72px; }
+  .world-reward-panel { top: 132px; }
 }

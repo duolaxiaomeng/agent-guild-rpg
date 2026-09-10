@@ -21,6 +21,12 @@ describe("AuthService registration", () => {
 
   it("creates a student, homestead, chat room and session after code verification", async () => {
     const tx = {
+      studentCohort: {
+        upsert: vi.fn().mockResolvedValue({
+          id: "cohort-chuangshuo-agent-1",
+          name: "船说agent第一期班"
+        })
+      },
       user: {
         create: vi.fn().mockResolvedValue({
           id: "student-new",
@@ -53,11 +59,21 @@ describe("AuthService registration", () => {
 
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
+        cohortId: "cohort-chuangshuo-agent-1",
         email: "new@academy.test",
         displayName: "新同学",
         role: UserRole.student
       })
     }));
+    expect(tx.studentCohort.upsert).toHaveBeenCalledWith({
+      where: { id: "cohort-chuangshuo-agent-1" },
+      update: { isActive: true, name: "船说agent第一期班" },
+      create: {
+        id: "cohort-chuangshuo-agent-1",
+        isActive: true,
+        name: "船说agent第一期班"
+      }
+    });
     expect(tx.homestead.create).toHaveBeenCalledWith({
       data: { ownerId: "student-new", title: "新同学 的工坊" }
     });
@@ -70,7 +86,15 @@ describe("AuthService registration", () => {
     }));
     expect(result).toMatchObject({
       token: expect.stringMatching(/^session_/),
-      user: { id: "student-new", role: "student", displayName: "新同学" }
+      user: {
+        id: "student-new",
+        role: "student",
+        displayName: "新同学",
+        cohort: {
+          id: "cohort-chuangshuo-agent-1",
+          name: "船说agent第一期班"
+        }
+      }
     });
   });
 });

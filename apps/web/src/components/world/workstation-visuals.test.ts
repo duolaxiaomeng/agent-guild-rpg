@@ -96,12 +96,27 @@ describe("buildWorkstationCharacterManifest", () => {
   it("flattens all runtime assets and resolves texture keys by visual state", () => {
     const entries = buildWorkstationPreloadEntries();
 
-    expect(entries).toHaveLength(36);
-    expect(new Set(entries.map(({ key }) => key)).size).toBe(36);
+    expect(entries).toHaveLength(72);
+    expect(new Set(entries.map(({ key }) => key)).size).toBe(72);
     expect(entries.some(({ key }) => key.includes("occupied") || key.includes("-empty"))).toBe(false);
     expect(resolveWorkstationCharacterKey("browser", "seated-idle")).toBe("browser-seated");
     expect(resolveWorkstationCharacterKey("ops", "standing")).toBe("ops-standing");
     expect(resolveWorkstationCharacterKey("lead", "walking", 0)).toBe("lead-walk-a");
-    expect(resolveWorkstationCharacterKey("lead", "walking", 1)).toBe("lead-walk-b");
+    expect(resolveWorkstationCharacterKey("lead", "walking", 1)).toBe("lead-standing");
+    expect(resolveWorkstationCharacterKey("lead", "walking", 2)).toBe("lead-walk-b");
+    expect(resolveWorkstationCharacterKey("lead", "walking", 3)).toBe("lead-standing");
+    expect(resolveWorkstationCharacterKey("staff", "standing", 0, "down")).toBe("staff-front-standing");
+    expect(resolveWorkstationCharacterKey("staff", "walking", 0, "down")).toBe("staff-front-walk-a");
+    expect(resolveWorkstationCharacterKey("staff", "walking", 1, "down")).toBe("staff-front-standing");
+    expect(resolveWorkstationCharacterKey("staff", "walking", 2, "down")).toBe("staff-front-walk-b");
+    expect(resolveWorkstationCharacterKey("staff", "standing", 0, "up")).toBe("staff-back-standing");
+    expect(resolveWorkstationCharacterKey("staff", "walking", 0, "up")).toBe("staff-back-walk-a");
+    expect(resolveWorkstationCharacterKey("staff", "walking", 2, "up")).toBe("staff-back-walk-b");
+    expect(resolveWorkstationCharacterKey("browser", "standing", 0, "down")).toBe("browser-front-standing");
+    expect(resolveWorkstationCharacterKey("browser", "walking", 0, "down")).toBe("browser-front-walk-a");
+    expect(resolveWorkstationCharacterKey("coder", "standing", 0, "up")).toBe("coder-back-standing");
+    expect(resolveWorkstationCharacterKey("files", "walking", 2, "down")).toBe("files-front-walk-b");
+    expect(resolveWorkstationCharacterKey("ops", "standing", 0, "down")).toBe("ops-front-standing");
+    expect(resolveWorkstationCharacterKey("lead", "standing", 0, "up")).toBe("lead-back-standing");
   });
 });

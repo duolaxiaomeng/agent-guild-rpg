@@ -1,14 +1,21 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { decideReview } from "../../lib/api-client";
+import { decideReview, getSubmissionDetail } from "../../lib/api-client";
 import { ReviewQueue } from "./review-queue";
 
 vi.mock("../../lib/api-client", () => ({
-  decideReview: vi.fn()
+  decideReview: vi.fn(),
+  getSubmissionDetail: vi.fn()
+}));
+
+const refreshMock = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: refreshMock })
 }));
 
 describe("ReviewQueue", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     window.localStorage.setItem(
       "agent-guild-session",
       JSON.stringify({
@@ -136,11 +143,9 @@ describe("ReviewQueue", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("待老师裁定 0")).toBeInTheDocument();
-      expect(screen.getByText("今日已裁定 1")).toBeInTheDocument();
-      expect(screen.getByText("需重点关注 0")).toBeInTheDocument();
       expect(screen.getByText("已通过")).toBeInTheDocument();
       expect(screen.getByText("老师裁定已同步。")).toBeInTheDocument();
+      expect(refreshMock).toHaveBeenCalled();
     });
   });
 
@@ -204,11 +209,82 @@ describe("ReviewQueue", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("待老师裁定 0")).toBeInTheDocument();
-      expect(screen.getByText("今日已裁定 2")).toBeInTheDocument();
-      expect(screen.getByText("需重点关注 1")).toBeInTheDocument();
       expect(screen.getByText("需要调整")).toBeInTheDocument();
       expect(screen.getByText("终评分 85")).toBeInTheDocument();
+      expect(refreshMock).toHaveBeenCalled();
     });
+  });
+
+  it("loads and displays the complete submission detail", async () => {
+    vi.mocked(getSubmissionDetail).mockResolvedValue({
+      submission: {
+        id: "submission-1",
+        clientRequestId: "request-1",
+        studentId: "student-1",
+        studentName: "Lin",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        dayTitle: "First Agent Session",
+        agentSessionId: "session-1",
+        agentProvider: "codex",
+        agentSessionStatus: "active",
+        triggerType: "button",
+        conversationSummary: "Student compared the expected result and corrected the prompt.",
+        workSummary: "Student completed the Agent website and attached evidence.",
+        artifacts: [{ kind: "demo", label: "演示", url: "/artifacts/demo" }],
+        selfReflection: "I learned how to define acceptance criteria before implementation.",
+        agentEvaluationHints: ["verified"],
+        timestamp: "2026-07-14T00:00:00.000Z"
+      },
+      review: {
+        submissionId: "submission-1",
+        status: "needs_teacher",
+        suggestedScore: null,
+        finalScore: null,
+        decision: null,
+        rationale: "AI processing failed and requires teacher handling.",
+        riskFlags: ["ai_failed"],
+        reviewerName: null,
+        aiReviewedAt: null,
+        decidedAt: null
+      },
+      agentEvents: [
+        {
+          eventId: "event-1",
+          type: "task.completed",
+          payload: {},
+          occurredAt: "2026-07-14T00:00:00.000Z"
+        }
+      ]
+    });
+    render(
+      <ReviewQueue
+        summary={{ pendingCount: 1, reviewedToday: 0, flaggedCount: 0 }}
+        items={[{
+          submissionId: "submission-1",
+          studentName: "Lin",
+          guildName: "Morning Forge",
+          dayLabel: "Day 1",
+          decisionLabel: "待老师裁定",
+          reviewStatus: "needs_teacher",
+          isPendingTeacherDecision: true,
+          finalScore: null,
+          suggestedScore: null,
+          decision: null,
+          submittedAtLabel: "刚刚",
+          rationale: "AI processing failed."
+        }]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "查看作业" }));
+    expect(
+      await screen.findByText(/Student completed the Agent website and attached evidence\./)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/task\.completed · 2026-07-14T00:00:00\.000Z/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/提交时间：2026-07-14T00:00:00\.000Z/)).toBeInTheDocument();
+    expect(screen.getByText(/评审记录：needs_teacher/)).toBeInTheDocument();
   });
 });

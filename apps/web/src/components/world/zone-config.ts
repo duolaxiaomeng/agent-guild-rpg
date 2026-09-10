@@ -188,8 +188,8 @@ export const ZONE_DEFS: ZoneDef[] = [
     floorStyle: "mixed",
     decorations: [],
     npcs: [
-      { id: "walker-a", name: "巡场同事", x: 468, y: 142, tooltip: "去任务板确认一下", color: "#0f766e", pose: "walking", facing: "down", archetype: "staff", outfit: "teal-staff", routeId: "staff-patrol-loop", homeNodeId: "main-corridor-north", walkSpeed: 52, roleBehavior: "patrol", routeNumber: 2 },
-      { id: "walker-b", name: "访客", x: 590, y: 248, tooltip: "刚从休息区路过", color: "#334155", pose: "talking", facing: "left", archetype: "visitor", outfit: "gray-visitor", routeId: "visitor-lounge-loop", homeNodeId: "lounge-entry", walkSpeed: 38, roleBehavior: "visitor", routeNumber: 3 },
+      { id: "walker-a", name: "巡场同事", x: 468, y: 142, tooltip: "工作人员巡场 · 可咨询区域与任务入口", color: "#0f766e", pose: "walking", facing: "down", archetype: "staff", outfit: "teal-staff", routeId: "staff-patrol-loop", homeNodeId: "main-corridor-north", walkSpeed: 52, roleBehavior: "patrol", routeNumber: 2 },
+      { id: "walker-b", name: "访客", x: 590, y: 248, tooltip: "外来访客 · 正在参观休息区", color: "#334155", pose: "talking", facing: "left", archetype: "visitor", outfit: "gray-visitor", routeId: "visitor-lounge-loop", homeNodeId: "lounge-entry", walkSpeed: 38, roleBehavior: "visitor", routeNumber: 3 },
     ],
     agents: [
       {

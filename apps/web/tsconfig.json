@@ -18,12 +18,14 @@
     "isolatedModules": true
   },
   "include": [
+    ".next-e2e/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
+    ".next/types/**/*.ts",
     "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "vitest.config.ts",
-    "vitest.setup.ts",
-    ".next/types/**/*.ts"
+    "vitest.setup.ts"
   ],
   "exclude": [
     "node_modules"

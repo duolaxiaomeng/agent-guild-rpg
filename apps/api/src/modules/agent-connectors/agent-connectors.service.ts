@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   UnauthorizedException
@@ -7,8 +8,14 @@ import {
 import { AgentConnectorStatus, Prisma } from "@prisma/client";
 import * as crypto from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
+import {
+  WORKSTATION_HOME_BY_VISUAL_ROLE,
+  initialWorkstationRoleSchema,
+} from "contracts";
+import { resolveAgentVisualRole } from "../agent-team/agent-team.mapping";
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
+const CONNECTOR_STALE_AFTER_MS = 75 * 1000;
 const CREDENTIAL_PREFIX = "agc1";
 const DEVELOPMENT_CREDENTIAL_SIGNING_SECRET = "agent-guild-development-connector-credential-secret";
 
@@ -17,6 +24,7 @@ type ConnectorInput = {
   provider: string;
   clientName: string;
   capabilities: string[];
+  roleKey?: string;
 };
 
 type ConnectionCredentialPayload = {
@@ -32,6 +40,7 @@ type HeartbeatInput = {
 };
 
 type EventInput = {
+  eventId?: string;
   dayId: string;
   type: string;
   payload: Record<string, unknown>;
@@ -75,6 +84,9 @@ export class AgentConnectorsService {
   }
 
   async connect(input: ConnectorInput) {
+    if (input.roleKey && !initialWorkstationRoleSchema.safeParse(input.roleKey).success) {
+      throw new BadRequestException(`Unknown Agent role: ${input.roleKey}`);
+    }
     const now = new Date();
     const credential = this.parseConnectionCredential(input.connectionCredential);
     const pairing = await this.prisma.agentPairing.findUnique({
@@ -94,7 +106,49 @@ export class AgentConnectorsService {
     const connectorToken = `connector_${crypto.randomBytes(32).toString("hex")}`;
     const connectorTokenHash = this.hashSecret(connectorToken);
 
-    const connector = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const owner = await tx.user.findUniqueOrThrow({
+        where: { id: pairing.studentId },
+        select: {
+          role: true,
+          agentTeamBinding: { select: { roleKey: true } },
+        },
+      });
+      let selectedRoleKey = owner.agentTeamBinding?.roleKey ?? null;
+      if (owner.role === "student" && input.roleKey) {
+        const roleChanged = selectedRoleKey !== input.roleKey;
+        selectedRoleKey = input.roleKey;
+        await tx.agentTeamBinding.upsert({
+          where: { studentId: pairing.studentId },
+          create: { studentId: pairing.studentId, roleKey: input.roleKey },
+          update: { roleKey: input.roleKey },
+        });
+
+        const visualRole = resolveAgentVisualRole(input.roleKey);
+        if (visualRole) {
+          const home = WORKSTATION_HOME_BY_VISUAL_ROLE[visualRole];
+          await tx.agentWorldState.upsert({
+            where: { studentId: pairing.studentId },
+            create: {
+              studentId: pairing.studentId,
+              currentZone: "workstations",
+              positionX: home.x,
+              positionY: home.y,
+              facing: home.facing,
+            },
+            update: roleChanged
+              ? {
+                  currentZone: "workstations",
+                  positionX: home.x,
+                  positionY: home.y,
+                  facing: home.facing,
+                  revision: { increment: 1 },
+                }
+              : {},
+          });
+        }
+      }
+
       const agentSession = await tx.agentSession.create({
         data: {
           studentId: pairing.studentId,
@@ -122,8 +176,13 @@ export class AgentConnectorsService {
         data: { usedAt: now }
       });
 
-      return created;
+      return { connector: created, roleKey: selectedRoleKey };
     });
+
+    const connector = result.connector;
+    const visualRole = result.roleKey
+      ? resolveAgentVisualRole(result.roleKey)
+      : null;
 
     return {
       connectorId: connector.id,
@@ -133,22 +192,30 @@ export class AgentConnectorsService {
       clientName: connector.clientName,
       status: connector.status,
       capabilities: this.toStringArray(connector.capabilities),
+      roleKey: result.roleKey,
+      visualRole,
       connectedAt: connector.connectedAt.toISOString(),
       lastSeenAt: connector.lastSeenAt.toISOString()
     };
   }
 
   async getStudentProfile(studentId: string) {
+    await this.markStaleConnectorsOffline();
     const connector = await this.prisma.agentConnector.findFirst({
       where: { studentId, status: { not: AgentConnectorStatus.revoked } },
-      orderBy: { lastSeenAt: "desc" }
+      orderBy: { lastSeenAt: "desc" },
+      include: {
+        student: { select: { agentTeamBinding: { select: { roleKey: true } } } },
+      },
     });
 
-    return connector ? this.toProfile(connector) : null;
+    return connector
+      ? this.toProfile(connector, connector.student.agentTeamBinding?.roleKey)
+      : null;
   }
 
   async heartbeat(token: string, input: HeartbeatInput) {
-    const connector = await this.findByToken(token);
+    const connector = await this.authenticateConnectorToken(token);
     const updated = await this.prisma.agentConnector.update({
       where: { id: connector.id },
       data: {
@@ -165,36 +232,28 @@ export class AgentConnectorsService {
   }
 
   async recordEvent(token: string, input: EventInput) {
-    const connector = await this.findByToken(token);
-    const day = await this.prisma.questDay.findUnique({
-      where: { id: input.dayId },
-      select: { id: true }
-    });
+    const connector = await this.authenticateConnectorToken(token);
+    const [event] = await this.persistEvents(connector, [{
+      ...input,
+      eventId: input.eventId ?? crypto.randomUUID(),
+      occurredAt: input.occurredAt ?? new Date().toISOString()
+    }]);
+    return event;
+  }
 
-    if (!day) {
-      throw new BadRequestException("dayId does not exist");
+  async recordEvents(
+    token: string,
+    inputs: Array<EventInput & { eventId: string; occurredAt: string }>
+  ) {
+    const connector = await this.authenticateConnectorToken(token);
+    if (inputs.length < 1 || inputs.length > 100) {
+      throw new BadRequestException("events must contain between 1 and 100 items");
     }
-
-    const event = await this.prisma.agentEvent.create({
-      data: {
-        connectorId: connector.id,
-        studentId: connector.studentId,
-        dayId: input.dayId,
-        type: input.type,
-        payload: input.payload as Prisma.InputJsonValue,
-        occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date()
-      }
-    });
-
-    await this.prisma.agentConnector.update({
-      where: { id: connector.id },
-      data: {
-        status: AgentConnectorStatus.online,
-        lastSeenAt: new Date()
-      }
-    });
-
-    return this.toEvent(event);
+    const eventIds = new Set(inputs.map((event) => event.eventId));
+    if (eventIds.size !== inputs.length) {
+      throw new BadRequestException("eventId values must be unique within a batch");
+    }
+    return { events: await this.persistEvents(connector, inputs) };
   }
 
   async listEvents(studentId: string, dayId?: string) {
@@ -209,7 +268,51 @@ export class AgentConnectorsService {
     return events.map((event) => this.toEvent(event));
   }
 
-  private async findByToken(token: string) {
+  async listConnectorEvents(
+    token: string,
+    cursor?: string,
+    rawLimit?: string | number
+  ) {
+    const connector = await this.authenticateConnectorToken(token);
+    const limit = this.parseCursorLimit(rawLimit);
+    const cursorEvent = cursor
+      ? await this.prisma.agentEvent.findFirst({
+          where: { id: cursor, connectorId: connector.id },
+          select: { id: true, occurredAt: true }
+        })
+      : null;
+    if (cursor && !cursorEvent) {
+      throw new BadRequestException("Event cursor is invalid for this connector");
+    }
+
+    const events = await this.prisma.agentEvent.findMany({
+      where: {
+        connectorId: connector.id,
+        ...(cursorEvent
+          ? {
+              OR: [
+                { occurredAt: { gt: cursorEvent.occurredAt } },
+                {
+                  occurredAt: cursorEvent.occurredAt,
+                  id: { gt: cursorEvent.id }
+                }
+              ]
+            }
+          : {})
+      },
+      orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+      take: limit + 1
+    });
+    const hasMore = events.length > limit;
+    const page = events.slice(0, limit);
+    return {
+      events: page.map((event) => this.toEvent(event)),
+      nextCursor: page.length ? page[page.length - 1].id : cursor ?? null,
+      hasMore
+    };
+  }
+
+  async authenticateConnectorToken(token: string) {
     if (!token) {
       throw new UnauthorizedException("Agent connector token is required");
     }
@@ -222,7 +325,83 @@ export class AgentConnectorsService {
       throw new UnauthorizedException("Invalid agent connector token");
     }
 
+    if (
+      connector.status === AgentConnectorStatus.online &&
+      connector.lastSeenAt.getTime() <= Date.now() - CONNECTOR_STALE_AFTER_MS
+    ) {
+      return this.prisma.agentConnector.update({
+        where: { id: connector.id },
+        data: { status: AgentConnectorStatus.offline }
+      });
+    }
+
     return connector;
+  }
+
+  private async persistEvents(
+    connector: { id: string; studentId: string },
+    inputs: Array<EventInput & { eventId: string; occurredAt: string }>
+  ) {
+    const dayIds = [...new Set(inputs.map((input) => input.dayId))];
+    const days = await this.prisma.questDay.findMany({
+      where: { id: { in: dayIds } },
+      select: { id: true }
+    });
+    if (days.length !== dayIds.length) {
+      throw new BadRequestException("One or more dayId values do not exist");
+    }
+
+    const events = await this.prisma.$transaction(async (tx) => {
+      const persisted = [];
+      for (const input of inputs) {
+        const event = await tx.agentEvent.upsert({
+          where: { eventId: input.eventId },
+          update: {},
+          create: {
+            eventId: input.eventId,
+            connectorId: connector.id,
+            studentId: connector.studentId,
+            dayId: input.dayId,
+            type: input.type,
+            payload: input.payload as Prisma.InputJsonValue,
+            occurredAt: new Date(input.occurredAt)
+          }
+        });
+        if (event.connectorId !== connector.id) {
+          throw new ConflictException("eventId is already owned by another connector");
+        }
+        persisted.push(event);
+      }
+      await tx.agentConnector.update({
+        where: { id: connector.id },
+        data: {
+          status: AgentConnectorStatus.online,
+          lastSeenAt: new Date()
+        }
+      });
+      return persisted;
+    });
+
+    return events.map((event) => this.toEvent(event));
+  }
+
+  private markStaleConnectorsOffline() {
+    return this.prisma.agentConnector.updateMany({
+      where: {
+        status: AgentConnectorStatus.online,
+        lastSeenAt: { lte: new Date(Date.now() - CONNECTOR_STALE_AFTER_MS) }
+      },
+      data: { status: AgentConnectorStatus.offline }
+    });
+  }
+
+  private parseCursorLimit(rawLimit?: string | number) {
+    if (rawLimit === undefined || rawLimit === "") return 50;
+    const limit = Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new BadRequestException("limit must be an integer between 1 and 200");
+    }
+    return limit;
   }
 
   private toProfile(connector: {
@@ -234,7 +413,7 @@ export class AgentConnectorsService {
     capabilities: Prisma.JsonValue;
     connectedAt: Date;
     lastSeenAt: Date;
-  }) {
+  }, roleKey?: string | null) {
     return {
       connectorId: connector.id,
       agentSessionId: connector.agentSessionId,
@@ -242,6 +421,8 @@ export class AgentConnectorsService {
       clientName: connector.clientName,
       status: connector.status,
       capabilities: this.toStringArray(connector.capabilities),
+      roleKey: roleKey ?? null,
+      visualRole: roleKey ? resolveAgentVisualRole(roleKey) : null,
       connectedAt: connector.connectedAt.toISOString(),
       lastSeenAt: connector.lastSeenAt.toISOString()
     };
@@ -249,6 +430,7 @@ export class AgentConnectorsService {
 
   private toEvent(event: {
     id: string;
+    eventId: string;
     connectorId: string;
     studentId: string;
     dayId: string;
@@ -259,6 +441,7 @@ export class AgentConnectorsService {
   }) {
     return {
       id: event.id,
+      eventId: event.eventId,
       connectorId: event.connectorId,
       studentId: event.studentId,
       dayId: event.dayId,

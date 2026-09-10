@@ -1,25 +1,20 @@
-import { INestApplication, ValidationPipe } from "@nestjs/common";
+import {
+  ConflictException,
+  INestApplication,
+  NotFoundException,
+  ValidationPipe,
+} from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentOrchestrationController } from "../src/modules/agent-orchestration/agent-orchestration.controller";
 import { AgentOrchestrationService } from "../src/modules/agent-orchestration/agent-orchestration.service";
-import {
-  AGENT_LOOP_RUNNER,
-  AGENT_ORCHESTRATION_OPTIONS,
-  AGENT_RUN_STATE_PERSISTENCE,
-  type AgentRunStatePersistence,
-} from "../src/modules/agent-orchestration/agent-orchestration.tokens";
-import type {
-  AgentLoopRunner,
-  AgentRunEvent,
-} from "../src/modules/agent-orchestration/orchestrator";
 import { AuthGuard } from "../src/modules/auth/auth.guard";
 import { AuthService } from "../src/modules/auth/auth.service";
 
 describe("Agent orchestration API", () => {
   let app: INestApplication;
-  const events: AgentRunEvent[] = [];
+  const runs = new Map<string, Record<string, unknown>>();
 
   beforeAll(async () => {
     const authService = {
@@ -32,29 +27,56 @@ describe("Agent orchestration API", () => {
         },
       })),
     };
-    const runner: AgentLoopRunner = {
-      run: vi.fn(
-        (_run, control) =>
-          new Promise((resolve) => {
-            control.signal.addEventListener("abort", () => resolve("aborted"));
-          }),
-      ),
-    };
-    const persistence: AgentRunStatePersistence = {
-      save: vi.fn((event: AgentRunEvent) => {
-        events.push(event);
+    const orchestrationService = {
+      create: vi.fn(async (input: Record<string, unknown>) => {
+        const runId = input.runId as string;
+        if (runs.has(runId)) throw new ConflictException("duplicate run");
+        const dependencies = (input.dependencies as string[] | undefined) ?? [];
+        const run = {
+          ...input,
+          runId,
+          dependencies,
+          status: dependencies.length > 0 ? "blocked" : "queued",
+        };
+        runs.set(runId, run);
+        return run;
+      }),
+      list: vi.fn(async () => [...runs.values()]),
+      get: vi.fn(async (runId: string) => {
+        const run = runs.get(runId);
+        if (!run) throw new NotFoundException("missing run");
+        return run;
+      }),
+      schedule: vi.fn(async () => ({ runs: [...runs.values()] })),
+      pause: vi.fn(async (runId: string) => {
+        const run = runs.get(runId);
+        if (!run) throw new NotFoundException("missing run");
+        if (run.status !== "queued") throw new ConflictException("invalid state");
+        run.status = "blocked";
+        return run;
+      }),
+      resume: vi.fn(async (runId: string) => {
+        const run = runs.get(runId);
+        if (!run) throw new NotFoundException("missing run");
+        if (run.status !== "blocked") throw new ConflictException("invalid state");
+        run.status = "queued";
+        return run;
+      }),
+      cancel: vi.fn(async (runId: string) => {
+        const run = runs.get(runId);
+        if (!run) throw new NotFoundException("missing run");
+        if (run.status === "cancelled") throw new ConflictException("invalid state");
+        run.status = "cancelled";
+        return run;
       }),
     };
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AgentOrchestrationController],
       providers: [
-        AgentOrchestrationService,
+        { provide: AgentOrchestrationService, useValue: orchestrationService },
         AuthGuard,
         { provide: AuthService, useValue: authService },
-        { provide: AGENT_LOOP_RUNNER, useValue: runner },
-        { provide: AGENT_RUN_STATE_PERSISTENCE, useValue: persistence },
-        { provide: AGENT_ORCHESTRATION_OPTIONS, useValue: { maxConcurrency: 1 } },
       ],
     }).compile();
 
@@ -78,13 +100,22 @@ describe("Agent orchestration API", () => {
     const student = await request(app.getHttpServer())
       .post("/agent-orchestration/runs")
       .set("Authorization", "Bearer student-token")
-      .send({ runId: "forbidden-run" });
+      .send({
+        runId: "forbidden-run",
+        studentId: "student-1",
+        provider: "codex",
+      });
     expect(student.status).toBe(403);
   });
 
   it("creates, lists, gets and schedules runs", async () => {
     const createParent = await teacherPost("/agent-orchestration/runs")
-      .send({ runId: "parent", input: { task: "review" } });
+      .send({
+        runId: "parent",
+        studentId: "student-1",
+        provider: "codex",
+        input: { task: "review" },
+      });
     expect(createParent.status).toBe(201);
     expect(createParent.body).toMatchObject({
       runId: "parent",
@@ -94,7 +125,12 @@ describe("Agent orchestration API", () => {
     });
 
     const createChild = await teacherPost("/agent-orchestration/runs")
-      .send({ runId: "child", dependencies: ["parent"] });
+      .send({
+        runId: "child",
+        studentId: "student-1",
+        provider: "codex",
+        dependencies: ["parent"],
+      });
     expect(createChild.status).toBe(201);
 
     const list = await teacherGet("/agent-orchestration/runs");
@@ -111,7 +147,7 @@ describe("Agent orchestration API", () => {
     expect(detail.body).toMatchObject({
       runId: "child",
       dependencies: ["parent"],
-      status: "queued",
+      status: "blocked",
     });
 
     const scheduled = await teacherPost(
@@ -119,8 +155,8 @@ describe("Agent orchestration API", () => {
     );
     expect(scheduled.status).toBe(202);
     expect(scheduled.body.runs).toEqual([
-      expect.objectContaining({ runId: "parent", status: "running" }),
-      expect.objectContaining({ runId: "child", status: "queued" }),
+      expect.objectContaining({ runId: "parent", status: "queued" }),
+      expect.objectContaining({ runId: "child", status: "blocked" }),
     ]);
   });
 
@@ -129,13 +165,13 @@ describe("Agent orchestration API", () => {
       "/agent-orchestration/runs/parent/pause",
     );
     expect(paused.status).toBe(200);
-    expect(paused.body.status).toBe("paused");
+    expect(paused.body.status).toBe("blocked");
 
     const resumed = await teacherPost(
       "/agent-orchestration/runs/parent/resume",
     );
     expect(resumed.status).toBe(200);
-    expect(resumed.body.status).toBe("running");
+    expect(resumed.body.status).toBe("queued");
 
     const cancelled = await teacherPost(
       "/agent-orchestration/runs/parent/cancel",
@@ -143,9 +179,6 @@ describe("Agent orchestration API", () => {
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.status).toBe("cancelled");
 
-    expect(events.map((event) => event.run.status)).toEqual(
-      expect.arrayContaining(["queued", "running", "paused", "cancelled"]),
-    );
   });
 
   it("maps not-found, duplicate and invalid state errors to stable HTTP responses", async () => {
@@ -155,7 +188,11 @@ describe("Agent orchestration API", () => {
     expect(missing.status).toBe(404);
 
     const duplicate = await teacherPost("/agent-orchestration/runs")
-      .send({ runId: "parent" });
+      .send({
+        runId: "parent",
+        studentId: "student-1",
+        provider: "codex",
+      });
     expect(duplicate.status).toBe(409);
 
     const invalidState = await teacherPost(

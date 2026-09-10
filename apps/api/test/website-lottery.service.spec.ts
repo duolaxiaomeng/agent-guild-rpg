@@ -16,8 +16,8 @@ const option = {
 const optionTwo = {
   id: "option-2",
   dayId: "day-1",
-  label: "Agent 短视频选题网站",
-  description: "让 Agent 根据关键词和热点生成选题池",
+  label: "短视频选题网站",
+  description: "根据关键词和热点生成选题池",
   isActive: true,
   sortOrder: 2,
   createdAt: new Date()
@@ -55,6 +55,7 @@ describe("WebsiteLotteryService", () => {
     const create = vi.fn().mockResolvedValue(draw);
     const service = new WebsiteLotteryService({
       questDay: { findUnique: vi.fn().mockResolvedValue({ id: "day-1" }) },
+      agentConnector: { findFirst: vi.fn().mockResolvedValue({ id: "connector-1" }) },
       websiteLotteryDraw: {
         findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
@@ -78,6 +79,15 @@ describe("WebsiteLotteryService", () => {
       .rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("does not allow a student without an online Agent to draw", async () => {
+    const service = new WebsiteLotteryService({
+      agentConnector: { findFirst: vi.fn().mockResolvedValue(null) },
+    } as never);
+
+    await expect(service.draw("day-1", { id: "student-1", role: UserRole.student }))
+      .rejects.toThrow("An online Agent is required to draw a website topic");
+  });
+
   it("draws without repeating a topic in the same day", async () => {
     const create = vi.fn()
       .mockResolvedValueOnce({
@@ -96,6 +106,7 @@ describe("WebsiteLotteryService", () => {
       });
     const service = new WebsiteLotteryService({
       questDay: { findUnique: vi.fn().mockResolvedValue({ id: "day-1" }) },
+      agentConnector: { findFirst: vi.fn().mockResolvedValue({ id: "connector-1" }) },
       websiteLotteryDraw: {
         findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn()
@@ -123,6 +134,7 @@ describe("WebsiteLotteryService", () => {
   it("hides already drawn topics from the remaining student pool", async () => {
     const service = new WebsiteLotteryService({
       questDay: { findUnique: vi.fn().mockResolvedValue({ id: "day-1" }) },
+      agentConnector: { findFirst: vi.fn().mockResolvedValue({ id: "connector-1" }) },
       websiteLotteryDraw: {
         findMany: vi.fn().mockResolvedValue([{ optionId: "option-1" }]),
         findUnique: vi.fn().mockResolvedValue(null)
@@ -134,8 +146,60 @@ describe("WebsiteLotteryService", () => {
 
     await expect(service.getDayLottery("day-1", { id: "student-1", role: UserRole.student })).resolves.toMatchObject({
       dayId: "day-1",
+      agentOnline: true,
       options: [{ id: "option-2" }],
       draw: null
     });
+  });
+
+  it("lets a student return a topic and redraw a different one", async () => {
+    const deleteDraw = vi.fn().mockResolvedValue({ id: "draw-1" });
+    const createDraw = vi.fn().mockResolvedValue({
+      id: "draw-2",
+      dayId: "day-1",
+      studentId: "student-1",
+      drawnAt: new Date("2026-07-14T10:10:00.000Z"),
+      option: optionTwo
+    });
+    const transaction = vi.fn(async (callback: (tx: {
+      websiteLotteryDraw: {
+        delete: typeof deleteDraw;
+        create: typeof createDraw;
+      };
+    }) => Promise<unknown>) => callback({
+      websiteLotteryDraw: {
+        delete: deleteDraw,
+        create: createDraw
+      }
+    }));
+    const service = new WebsiteLotteryService({
+      questDay: { findUnique: vi.fn().mockResolvedValue({ id: "day-1" }) },
+      agentConnector: { findFirst: vi.fn().mockResolvedValue({ id: "connector-1" }) },
+      websiteLotteryDraw: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "draw-1",
+          dayId: "day-1",
+          studentId: "student-1",
+          drawnAt: new Date("2026-07-14T10:00:00.000Z"),
+          option
+        }),
+        findMany: vi.fn().mockResolvedValue([{ optionId: option.id }])
+      },
+      websiteLotteryOption: {
+        findMany: vi.fn().mockResolvedValue([optionTwo])
+      },
+      $transaction: transaction
+    } as never);
+
+    await expect(service.redraw("day-1", { id: "student-1", role: UserRole.student })).resolves.toMatchObject({
+      alreadyDrawn: false,
+      draw: { option: { id: "option-2" } }
+    });
+    expect(deleteDraw).toHaveBeenCalledWith({
+      where: { dayId_studentId: { dayId: "day-1", studentId: "student-1" } }
+    });
+    expect(createDraw).toHaveBeenCalledWith(expect.objectContaining({
+      data: { dayId: "day-1", studentId: "student-1", optionId: "option-2" }
+    }));
   });
 });

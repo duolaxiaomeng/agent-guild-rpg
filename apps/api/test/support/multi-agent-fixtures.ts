@@ -1,5 +1,9 @@
 import type { INestApplication } from "@nestjs/common";
-import { AgentSessionStatus, type PrismaClient } from "@prisma/client";
+import {
+  AgentConnectorStatus,
+  AgentSessionStatus,
+  type PrismaClient,
+} from "@prisma/client";
 import request from "supertest";
 
 export type TokenMap = {
@@ -10,27 +14,60 @@ export type TokenMap = {
 };
 
 /**
- * The seed only creates session-1 for student-1.
- * This helper补建 session-2 (student-2 / Mo) and session-3 (student-3 / Kai)
- * so that all three students can submit with their own agentSessionId.
+ * Keep the three student sessions present without assuming whether the seed
+ * already created them. This makes the fixture safe across schema snapshots.
  */
 export async function ensureAgentSessions(prisma: PrismaClient): Promise<void> {
-  await prisma.agentSession.createMany({
-    data: [
-      {
-        id: "session-2",
-        studentId: "student-2",
-        provider: "claude-code",
-        status: AgentSessionStatus.active,
+  const sessions = [
+    {
+      id: "session-1",
+      studentId: "student-1",
+      provider: "claude-code",
+      status: AgentSessionStatus.active,
+    },
+    {
+      id: "session-2",
+      studentId: "student-2",
+      provider: "codex",
+      status: AgentSessionStatus.active,
+    },
+    {
+      id: "session-3",
+      studentId: "student-3",
+      provider: "claude-code",
+      status: AgentSessionStatus.active,
+    },
+  ];
+  for (const session of sessions) {
+    await prisma.agentSession.upsert({
+      where: { id: session.id },
+      create: session,
+      update: {
+        studentId: session.studentId,
+        provider: session.provider,
+        status: session.status,
       },
-      {
-        id: "session-3",
-        studentId: "student-3",
-        provider: "claude-code",
-        status: AgentSessionStatus.active,
+    });
+    await prisma.agentConnector.upsert({
+      where: { agentSessionId: session.id },
+      create: {
+        id: `connector-${session.studentId}`,
+        studentId: session.studentId,
+        agentSessionId: session.id,
+        provider: session.provider,
+        clientName: `test-${session.studentId}`,
+        tokenHash: `test-token-${session.studentId}`,
+        status: AgentConnectorStatus.online,
+        capabilities: [],
+        lastSeenAt: new Date(),
       },
-    ],
-  });
+      update: {
+        provider: session.provider,
+        status: AgentConnectorStatus.online,
+        lastSeenAt: new Date(),
+      },
+    });
+  }
 }
 
 /**
@@ -101,6 +138,7 @@ export function buildSubmissionBody(
   const profile = STUDENT_PROFILES[studentId] ?? STUDENT_PROFILES["student-1"];
 
   return {
+    clientRequestId: `e2e-${studentId}-${dayId}`,
     studentId,
     courseWorldId: "course-world-1",
     dayId,

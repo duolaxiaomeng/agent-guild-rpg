@@ -4,6 +4,7 @@ import {
   agentHandoffSchema,
   agentRoleSchema,
   agentRunSummarySchema,
+  agentTeamBindingSchema,
   agentTeamStatusSchema,
   agentTaskSchema,
 } from "./agent-team";
@@ -45,6 +46,15 @@ describe("agent team contracts", () => {
       capabilities: ["testing", "debugging"],
       status: "in_progress",
     });
+  });
+
+  it("accepts a persisted visual identity binding", () => {
+    expect(agentTeamBindingSchema.parse({
+      studentId: "student-1",
+      roleKey: "frontend-developer",
+      visualRole: "coder",
+      updatedAt: "2026-07-15T09:00:00.000Z",
+    })).toMatchObject({ roleKey: "frontend-developer", visualRole: "coder" });
   });
 
   it("rejects unknown roles and capability tags", () => {

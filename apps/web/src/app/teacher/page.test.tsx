@@ -92,7 +92,7 @@ describe("teacher page", () => {
         return { ok: true, json: async () => null } as Response;
       }
 
-      if (url.endsWith("/reviews")) {
+      if (url.includes("/reviews?")) {
         return {
           ok: true,
           json: async () => ({
@@ -115,7 +115,8 @@ describe("teacher page", () => {
                 dayLabel: "Day 2",
                 submittedAt: "2026-06-29T09:00:00.000Z"
               }
-            ]
+            ],
+            pagination: { page: 1, pageSize: 50, total: 1 }
           })
         } as Response;
       }
@@ -123,7 +124,7 @@ describe("teacher page", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(await TeacherPage());
+    render(await TeacherPage({}));
 
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "进入我的主城区" })).toHaveAttribute("href", "/");
@@ -140,7 +141,7 @@ describe("teacher page", () => {
     expect(screen.getByText("终评分 90")).toBeInTheDocument();
     expect(screen.getAllByText("Day 2")).toHaveLength(1);
     expect(screen.getByText("Prompt Iteration")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith("http://localhost:3001/reviews", expect.objectContaining({
+    expect(globalThis.fetch).toHaveBeenCalledWith("http://localhost:3001/reviews?page=1&pageSize=50", expect.objectContaining({
       cache: "no-store",
       headers: {
         Authorization: "Bearer session_teacher-1"
@@ -154,7 +155,7 @@ describe("teacher page", () => {
   it("asks unauthenticated visitors to log in before entering the teacher workbench", async () => {
     getCookie.mockReturnValue(undefined);
 
-    render(await TeacherPage());
+    render(await TeacherPage({}));
 
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
     expect(screen.getByText("请先登录老师账号。")).toBeInTheDocument();
@@ -182,7 +183,7 @@ describe("teacher page", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(await TeacherPage());
+    render(await TeacherPage({}));
 
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
     expect(screen.getByText("当前账号无权进入老师工作台。")).toBeInTheDocument();
@@ -208,12 +209,12 @@ describe("teacher page", () => {
       }
       if (url.endsWith("/classrooms/sessions/class-1/help-requests")) return { ok: true, json: async () => [] } as Response;
       if (url.endsWith("/quests")) return { ok: true, json: async () => [] } as Response;
-      if (url.endsWith("/reviews")) return { ok: true, json: async () => ({ summary: { pendingCount: 0, reviewedToday: 0, flaggedCount: 0 }, items: [] }) } as Response;
+      if (url.includes("/reviews?")) return { ok: true, json: async () => ({ summary: { pendingCount: 0, reviewedToday: 0, flaggedCount: 0 }, items: [], pagination: { page: 1, pageSize: 50, total: 0 } }) } as Response;
       if (url.endsWith("/agent-avatars")) return { ok: true, json: async () => [] } as Response;
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(await TeacherPage());
+    render(await TeacherPage({}));
 
     expect(screen.getByRole("heading", { name: "老师工作台" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "课堂求助队列" })).toBeInTheDocument();

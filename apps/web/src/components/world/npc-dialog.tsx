@@ -40,9 +40,10 @@ export function NpcDialog({
     try {
       const result = await fetchNpcConversationSafe(npcId, studentId);
       const data = result.data;
+      const isDegraded = result.degraded || data.degraded;
       const text =
-        data.reply || (result.degraded ? fallbackText : "...");
-      setDegraded(result.degraded);
+        data.reply || (isDegraded ? fallbackText : "...");
+      setDegraded(isDegraded);
       setHistory([{ role: "npc", text }]);
     } catch {
       setDegraded(true);
@@ -78,7 +79,7 @@ export function NpcDialog({
       );
       const data = result.data;
       const text = data.reply || fallbackText;
-      setDegraded(result.degraded);
+      setDegraded(result.degraded || data.degraded);
       setHistory((prev) => [...prev, { role: "npc", text }]);
     } catch {
       setHistory((prev) => [

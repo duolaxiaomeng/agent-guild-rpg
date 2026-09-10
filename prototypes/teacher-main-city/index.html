@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>教师主城区原型</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="prototype-shell">
+      <header class="prototype-bar">
+        <div>
+          <span class="eyebrow">AGENT GUILD / PROTOTYPE 01</span>
+          <h1>教师视角 · 我的主城区</h1>
+        </div>
+        <div class="prototype-status"><span class="status-dot"></span>原型模式，不连接真实 API</div>
+      </header>
+
+      <main>
+        <section id="teacher-dashboard" class="screen dashboard-screen is-active" aria-labelledby="dashboard-title">
+          <div class="dashboard-copy">
+            <p class="eyebrow">TEACHER CONTROL ROOM</p>
+            <h2 id="dashboard-title">老师工作台</h2>
+            <p>先看班级教学真相，再进入自己的主城区观察 Agent 世界。</p>
+          </div>
+          <div class="dashboard-grid">
+            <article class="metric-card accent-blue"><span>当前课堂</span><strong>Day 02</strong><small>Prompt Iteration · 进行中</small></article>
+            <article class="metric-card accent-amber"><span>待老师裁定</span><strong>04</strong><small>AI 初评已完成</small></article>
+            <article class="metric-card accent-green"><span>在线学生</span><strong>12 / 18</strong><small>最近 5 分钟活跃</small></article>
+          </div>
+          <div class="dashboard-actions">
+            <button class="primary-action" data-go="city">进入我的主城区 <span>→</span></button>
+            <button class="secondary-action" data-toast="评审队列原型暂未展开">查看评审队列</button>
+            <button class="secondary-action" data-toast="课堂控制原型暂未展开">课堂控制</button>
+          </div>
+          <div class="dashboard-lower">
+            <div class="brief-card">
+              <div class="section-heading"><span>今日课堂节奏</span><b>LIVE</b></div>
+              <div class="timeline"><i class="done"></i><div><strong>讲解任务</strong><small>已完成 · 09:10</small></div><i class="current"></i><div><strong>Agent 实作</strong><small>当前阶段 · 还剩 24 分钟</small></div><i></i><div><strong>互测与提交</strong><small>未开始</small></div></div>
+            </div>
+            <div class="brief-card alert-card"><div class="section-heading"><span>需要关注</span><b>3 条</b></div><p>2 名学生的 Agent 长时间没有心跳，1 条提交等待教师裁定。</p><button data-go="city">去主城区查看 →</button></div>
+          </div>
+        </section>
+
+        <section id="teacher-city" class="screen city-screen" aria-labelledby="city-title">
+          <div class="city-topline">
+            <button class="back-link" data-go="dashboard">← 返回老师工作台</button>
+            <div class="city-title"><span class="eyebrow">READ-ONLY TEACHER VIEW</span><h2 id="city-title">我的主城区 <em>· Day 02</em></h2></div>
+            <div class="city-actions"><button data-toast="课堂控制原型暂未展开">课堂控制</button><button data-toast="世界频道原型暂未展开">世界频道</button></div>
+          </div>
+
+          <div class="city-layout">
+            <aside class="city-rail">
+              <div class="rail-card teacher-card"><div class="avatar teacher-avatar">师</div><div><strong>Teacher Lin</strong><small>老师 · 观察模式</small></div><span class="online-pill">在线</span></div>
+              <nav class="zone-list" aria-label="区域导航">
+                <button class="zone-button is-selected" data-zone="lobby"><span>01</span><b>工作室大厅</b><small>12 人在线</small></button>
+                <button class="zone-button" data-zone="workstations"><span>02</span><b>工位区</b><small>8 人工作中</small></button>
+                <button class="zone-button" data-zone="collab"><span>03</span><b>协作室</b><small>3 个房间活跃</small></button>
+                <button class="zone-button" data-zone="review"><span>04</span><b>评审区</b><small>4 个待处理</small></button>
+              </nav>
+              <div class="rail-note"><span class="note-mark">i</span><p>教师视角默认只读。点击角色可以查看教学状态，不会改变学生任务。</p></div>
+            </aside>
+
+            <section class="world-frame" aria-label="教师主城区画布">
+              <div class="world-toolbar"><span class="world-label" id="zone-label">WORKSHOP LOBBY</span><span class="world-clock">09:42 · LIVE</span></div>
+              <div id="world-scene" class="world-scene lobby-scene">
+                <div class="wall-strip"><span>AGENT GUILD</span><i></i><i></i><i></i><b>DAY 02 · PROMPT ITERATION</b></div>
+                <div class="scene-sign sign-left">任务公告<br /><small>今天完成一次 Agent 迭代</small></div>
+                <div class="scene-sign sign-right">课堂状态<br /><small>12 在线 · 3 需关注</small></div>
+                <div class="floor-mark">AG</div>
+                <button class="world-character character-blue" data-student="Lin"><span class="character-body">▣</span><b>Lin</b><small>工作中</small></button>
+                <button class="world-character character-green" data-student="Mo"><span class="character-body">◆</span><b>Mo</b><small>在线</small></button>
+                <button class="world-character character-purple" data-student="Kai"><span class="character-body">●</span><b>Kai</b><small>需关注</small></button>
+                <div class="lobby-desk desk-one"><span>RECEPTION</span></div>
+                <div class="lobby-desk desk-two"><span>CLASSROOM BOARD</span></div>
+                <div class="city-tooltip" id="city-tooltip"><strong>点击角色</strong><span>查看学生与 Agent 状态</span></div>
+              </div>
+              <div class="world-legend"><span><i class="legend-blue"></i>学生在线</span><span><i class="legend-amber"></i>需要关注</span><span><i class="legend-white"></i>教师观察模式</span></div>
+            </section>
+
+            <aside class="inspector-panel" id="inspector-panel" aria-live="polite">
+              <div class="inspector-empty"><div class="target-icon">◎</div><h3>选择一名学生</h3><p>点击主城区中的角色，查看他的任务、Agent 和课堂状态。</p></div>
+            </aside>
+          </div>
+        </section>
+      </main>
+
+      <div id="toast" class="toast" role="status"></div>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>

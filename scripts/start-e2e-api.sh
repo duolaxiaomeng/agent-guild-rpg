@@ -31,6 +31,7 @@ DATABASE_URL="file:$E2E_DB_PATH" \
   PORT="$API_PORT" \
   ALLOWED_ORIGINS="http://localhost:3100,http://127.0.0.1:3100" \
   REDIS_URL="" \
+  ARK_API_KEY="" \
   NODE_ENV="test" \
   node apps/api/dist/src/main.js &
 API_PID=$!

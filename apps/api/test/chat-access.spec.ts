@@ -1,6 +1,6 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { PrismaClient } from "@prisma/client";
+import { AgentConnectorStatus, PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { seedDatabase } from "../prisma/seed";
@@ -88,7 +88,20 @@ describe("chat access", () => {
     expect(response.status).toBe(403);
   });
 
-  it("still returns owner viewerRole for a student accessing their own room", async () => {
+  it("returns the real Agent session and allows only an owner with a fresh online connector to submit", async () => {
+    await prisma.agentConnector.create({
+      data: {
+        id: "connector-chat-owner",
+        studentId: "student-1",
+        agentSessionId: "session-1",
+        provider: "claude-code",
+        clientName: "Chat owner connector",
+        tokenHash: "chat-owner-connector-token",
+        status: AgentConnectorStatus.online,
+        capabilities: ["submit"],
+        lastSeenAt: new Date()
+      }
+    });
     const studentToken = await loginAs("lin@academy.test", "student-pass-123");
 
     const response = await request(app.getHttpServer())
@@ -97,6 +110,69 @@ describe("chat access", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.viewerRole).toBe("owner");
+    expect(response.body.agentSessionId).toBe("session-1");
+    expect(response.body.canSubmit).toBe(true);
+  });
+
+  it("does not expose a stale Agent session as submit-ready", async () => {
+    await prisma.agentConnector.create({
+      data: {
+        id: "connector-chat-stale",
+        studentId: "student-1",
+        agentSessionId: "session-1",
+        provider: "claude-code",
+        clientName: "Stale chat connector",
+        tokenHash: "chat-stale-connector-token",
+        status: AgentConnectorStatus.online,
+        capabilities: ["submit"],
+        lastSeenAt: new Date(Date.now() - 76_000)
+      }
+    });
+    const studentToken = await loginAs("lin@academy.test", "student-pass-123");
+
+    const response = await request(app.getHttpServer())
+      .get("/chat?roomId=room-chat-student-1")
+      .set("Authorization", `Bearer ${studentToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.viewerRole).toBe("owner");
+    expect(response.body.agentSessionId).toBeNull();
+    expect(response.body.canSubmit).toBe(false);
+  });
+
+  it("keeps an authorized collaboration guest read-only for submissions", async () => {
+    await prisma.agentConnector.create({
+      data: {
+        id: "connector-chat-guest-room",
+        studentId: "student-1",
+        agentSessionId: "session-1",
+        provider: "claude-code",
+        clientName: "Guest room owner connector",
+        tokenHash: "chat-guest-room-connector-token",
+        status: AgentConnectorStatus.online,
+        capabilities: ["submit"],
+        lastSeenAt: new Date()
+      }
+    });
+    await prisma.roomAccessGrant.create({
+      data: {
+        roomId: "room-chat-student-1",
+        granteeId: "student-2",
+        scope: "chat_summary",
+        status: "approved",
+        expiresAt: new Date(Date.now() + 3_600_000)
+      }
+    });
+    const guestToken = await loginAs("mo@academy.test", "student-pass-456");
+
+    const response = await request(app.getHttpServer())
+      .get("/chat?roomId=room-chat-student-1")
+      .set("Authorization", `Bearer ${guestToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.viewerRole).toBe("guest");
+    expect(response.body.agentSessionId).toBe("session-1");
+    expect(response.body.canSubmit).toBe(false);
   });
 
   it("still forbids a student from accessing another student's room without a grant", async () => {

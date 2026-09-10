@@ -6,6 +6,7 @@ import { ClassroomControlPanel } from "../../components/classroom/classroom-cont
 import { HelpQueue } from "../../components/classroom/help-queue";
 import { WebsiteLotteryManager } from "../../components/website-lottery/website-lottery-manager";
 import { TeacherTaskBoard } from "../../components/teacher/teacher-task-board";
+import { AgentAssignmentBoard } from "../../components/teacher/agent-assignment-board";
 import { AgentConnectorPanel } from "../../components/agent/agent-connector-panel";
 import { CSSProperties } from "react";
 import Link from "next/link";
@@ -15,6 +16,7 @@ import {
   getActiveClassroomSafe,
   getHelpRequestsSafe,
   getTeacherTaskProgressSafe,
+  getAgentAssignmentsSafe,
   fetchAgentAvatarsSafeWithToken,
   type ReviewQueueItem
 } from "../../lib/api-client";
@@ -45,6 +47,10 @@ function toReviewStatusLabel(item: ReviewQueueItem) {
     return "待老师裁定";
   }
 
+  if (item.reviewStatus === "needs_teacher") {
+    return "AI失败 · 请老师接管";
+  }
+
   return toDecisionLabel(item.decision ?? "approve");
 }
 
@@ -56,7 +62,11 @@ function toNextDayId(dayIds: string[]) {
   return `day-${maxDay + 1}`;
 }
 
-export default async function TeacherPage() {
+type TeacherPageProps = {
+  searchParams?: Promise<{ reviewPage?: string | string[] }>;
+};
+
+export default async function TeacherPage({ searchParams }: TeacherPageProps) {
   const result = await getServerSession();
 
   if (result.status === "unauthenticated") {
@@ -87,6 +97,15 @@ export default async function TeacherPage() {
   }
 
   const session = result.session;
+  const resolvedSearchParams = await searchParams;
+  const reviewPageValue = resolvedSearchParams?.reviewPage;
+  const reviewPage = Math.max(
+    1,
+    Number.parseInt(
+      typeof reviewPageValue === "string" ? reviewPageValue : "1",
+      10
+    ) || 1
+  );
 
   const classroomResult = await getActiveClassroomSafe(session.token);
   const classroom = classroomResult.data;
@@ -109,16 +128,20 @@ export default async function TeacherPage() {
     { data: reviewQueue, degraded: reviewQueueDegraded },
     { avatars: students, degraded: studentsDegraded },
     helpResult,
-    taskProgressResult
+    taskProgressResult,
+    assignmentResult
   ] = await Promise.all([
     getQuestListSafe(session.token),
-    getReviewQueueSafe(session.token),
+    getReviewQueueSafe(session.token, reviewPage, 50),
     fetchAgentAvatarsSafeWithToken(session.token),
     classroomResult.degraded || !classroom.session.id
       ? Promise.resolve({ data: [] as HelpRequest[], degraded: classroomResult.degraded })
       : getHelpRequestsSafe(classroom.session.id, session.token),
     session.user.role === "teacher"
       ? getTeacherTaskProgressSafe(session.token)
+      : Promise.resolve({ data: [], degraded: false }),
+    session.user.role === "teacher"
+      ? getAgentAssignmentsSafe(session.token)
       : Promise.resolve({ data: [], degraded: false })
   ]);
   const classroomDegraded = classroomResult.degraded || helpResult.degraded;
@@ -131,6 +154,16 @@ export default async function TeacherPage() {
     ...taskProgressResult.data.map((task) => task.dayId),
     ...quests.map((quest) => quest.dayId ?? quest.id)
   ]);
+  const assignmentStudents = Array.from(new Map([
+    ...taskProgressResult.data.flatMap((task) => task.students).map((student) => [
+      student.studentId,
+      { id: student.studentId, displayName: student.displayName }
+    ] as const),
+    ...students.map((student) => [
+      student.studentId,
+      { id: student.studentId, displayName: student.displayName }
+    ] as const)
+  ]).values());
 
   const dayItems = quests.map((quest) => ({
     id: quest.id,
@@ -186,7 +219,7 @@ export default async function TeacherPage() {
         </header>
 
         {/* Degraded notice */}
-        {questsDegraded || reviewQueueDegraded || studentsDegraded || classroomDegraded || taskProgressResult.degraded ? (
+        {questsDegraded || reviewQueueDegraded || studentsDegraded || classroomDegraded || taskProgressResult.degraded || assignmentResult.degraded ? (
           <div
             role="status"
             style={warningNoticeStyle}
@@ -196,6 +229,8 @@ export default async function TeacherPage() {
               ? "课堂数据暂不可达，当前显示安全空态。"
               : taskProgressResult.degraded
                 ? "作业进度暂不可达，任务发布区当前显示安全空态。"
+                : assignmentResult.degraded
+                  ? "Agent 任务控制面暂不可达，当前显示安全空态。"
                 : "评审与关卡数据暂不可达，当前显示安全空态。"}
           </div>
         ) : null}
@@ -205,6 +240,16 @@ export default async function TeacherPage() {
             initialTasks={taskProgressResult.data}
             courseWorldId={courseWorldId}
             defaultDayId={defaultDayId}
+            token={session.token}
+          />
+        ) : null}
+
+        {session.user.role === "teacher" ? (
+          <AgentAssignmentBoard
+            initialRuns={assignmentResult.data}
+            students={assignmentStudents}
+            courseWorldId={courseWorldId}
+            defaultDayId={currentQuest?.dayId ?? currentQuest?.id ?? defaultDayId}
             token={session.token}
           />
         ) : null}
@@ -221,7 +266,10 @@ export default async function TeacherPage() {
         <DayPanel currentDayId={currentQuest?.id ?? ""} days={dayItems} />
 
         {session.user.role === "teacher" ? (
-          <WebsiteLotteryManager dayId={currentQuest?.id ?? "day-1"} />
+          <WebsiteLotteryManager
+            dayId={currentQuest?.dayId ?? currentQuest?.id ?? "day-1"}
+            days={dayItems}
+          />
         ) : null}
 
         {classroom.viewer.canControlStages ? (
@@ -243,6 +291,7 @@ export default async function TeacherPage() {
         {/* Review Queue */}
         <ReviewQueue
           summary={reviewQueue.summary}
+          pagination={reviewQueue.pagination}
           items={reviewQueue.items.map((item) => ({
             submissionId: item.submissionId,
             studentName: item.studentName,

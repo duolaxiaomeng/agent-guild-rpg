@@ -3,19 +3,16 @@ import {
   Controller,
   Get,
   Inject,
+  Param,
   Post,
   UseGuards
 } from "@nestjs/common";
 import { IsString } from "class-validator";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
-import {
-  GuildMembershipRole,
-  MembershipStatus,
-  UserRole
-} from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
-import { PrismaService } from "../../prisma/prisma.service";
+import { GuildsService, type GuildActor } from "./guilds.service";
 
 class CreateGuildDto {
   @IsString()
@@ -25,73 +22,82 @@ class CreateGuildDto {
   description!: string;
 }
 
+class CreateGuildInvitationDto {
+  @IsString()
+  email!: string;
+}
+
 @ApiTags("guilds")
 @ApiBearerAuth()
 @Controller("guilds")
 @UseGuards(AuthGuard)
 export class GuildsController {
   constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService
+    @Inject(GuildsService) private readonly guildsService: GuildsService
   ) {}
 
   @ApiOperation({ summary: "获取公会列表", description: "返回所有公会列表，包含成员数、协作积分和描述信息" })
   @Get()
-  async list() {
-    const guilds = await this.prisma.guild.findMany({
-      include: {
-        memberships: {
-          where: {
-            status: MembershipStatus.active
-          }
-        }
-      },
-      orderBy: { name: "asc" }
-    });
-
-    return guilds.map((guild) => ({
-      id: guild.id,
-      name: guild.name,
-      description: guild.description,
-      memberCount: guild.memberships.length,
-      collaborationPoints: guild.collaborationPoints
-    }));
+  list(@CurrentUser() user: GuildActor) {
+    return this.guildsService.list(user);
   }
 
   @ApiOperation({ summary: "创建公会", description: "创建新公会并自动将创建者设为公会会长" })
   @Post()
-  async create(
+  create(
     @Body() body: CreateGuildDto,
     @CurrentUser() user: { id: string; role: UserRole; displayName: string }
   ) {
-    const ownerId = user.id;
+    return this.guildsService.create(body, user);
+  }
 
-    const guild = await this.prisma.$transaction(async (tx) => {
-      const createdGuild = await tx.guild.create({
-        data: {
-          name: body.name,
-          description: body.description,
-          ownerId
-        }
-      });
+  @ApiOperation({ summary: "邀请学生加入工会" })
+  @Post(":guildId/invitations")
+  invite(
+    @Param("guildId") guildId: string,
+    @Body() body: CreateGuildInvitationDto,
+    @CurrentUser() user: GuildActor
+  ) {
+    return this.guildsService.invite(guildId, body, user);
+  }
 
-      await tx.guildMembership.create({
-        data: {
-          guildId: createdGuild.id,
-          userId: ownerId,
-          role: GuildMembershipRole.leader,
-          status: MembershipStatus.active
-        }
-      });
+  @ApiOperation({ summary: "获取我的工会邀请" })
+  @Get("invitations/me")
+  listMyInvitations(@CurrentUser() user: GuildActor) {
+    return this.guildsService.listMyInvitations(user);
+  }
 
-      return createdGuild;
-    });
+  @ApiOperation({ summary: "接受工会邀请" })
+  @Post("invitations/:invitationId/accept")
+  acceptInvitation(
+    @Param("invitationId") invitationId: string,
+    @CurrentUser() user: GuildActor
+  ) {
+    return this.guildsService.acceptInvitation(invitationId, user);
+  }
 
-    return {
-      id: guild.id,
-      name: guild.name,
-      description: guild.description,
-      memberCount: 1,
-      collaborationPoints: guild.collaborationPoints
-    };
+  @ApiOperation({ summary: "拒绝工会邀请" })
+  @Post("invitations/:invitationId/decline")
+  declineInvitation(
+    @Param("invitationId") invitationId: string,
+    @CurrentUser() user: GuildActor
+  ) {
+    return this.guildsService.declineInvitation(invitationId, user);
+  }
+
+  @ApiOperation({ summary: "获取工会成员列表" })
+  @Get(":guildId/members")
+  listMembers(@Param("guildId") guildId: string) {
+    return this.guildsService.listMembers(guildId);
+  }
+
+  @ApiOperation({ summary: "移除工会成员" })
+  @Post(":guildId/members/:userId/remove")
+  removeMember(
+    @Param("guildId") guildId: string,
+    @Param("userId") userId: string,
+    @CurrentUser() user: GuildActor
+  ) {
+    return this.guildsService.removeMember(guildId, userId, user);
   }
 }

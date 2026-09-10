@@ -15,6 +15,10 @@ rm -f "$DATABASE_PATH"
 
 SCHEMA_SQL="$(pnpm --filter api exec prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script)"
 printf '%s' "$SCHEMA_SQL" | pnpm --filter api exec prisma db execute --stdin --url "$DATABASE_URL"
+# Docker/PostgreSQL verification may have generated the shared Prisma client
+# for the PostgreSQL datasource. Local reset must restore the SQLite client
+# before the seed process starts.
+pnpm --filter api exec prisma generate --schema prisma/schema.prisma >/dev/null
 pnpm --filter api build >/dev/null
 
 (cd "$ROOT_DIR/apps/api" && \

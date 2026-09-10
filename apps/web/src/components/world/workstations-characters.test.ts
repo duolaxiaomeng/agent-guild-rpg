@@ -90,7 +90,7 @@ describe("buildCharacterRenderSpec", () => {
     }
   });
 
-  it("gives walking actors a deterministic two-frame stride spec", () => {
+  it("gives walking actors a four-phase stride over the two pixel textures", () => {
     const walker: AgentDef = {
       id: "walking-agent",
       label: "Runner",
@@ -109,7 +109,7 @@ describe("buildCharacterRenderSpec", () => {
     const spec = buildCharacterRenderSpec(walker);
 
     expect(spec.motion).toBe("walking");
-    expect(spec.walkCycleFrames).toBe(2);
+    expect(spec.walkCycleFrames).toBe(4);
     expect(spec.stridePx).toBe(4);
   });
 });

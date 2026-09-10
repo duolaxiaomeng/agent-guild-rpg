@@ -6,6 +6,8 @@ import { AuthGuard } from "../src/modules/auth/auth.guard";
 import { AuthService } from "../src/modules/auth/auth.service";
 import { AgentTeamController } from "../src/modules/agent-team/agent-team.controller";
 import { AgentTeamService } from "../src/modules/agent-team/agent-team.service";
+import { PrismaService } from "../src/prisma/prisma.service";
+import { AgentAvatarService } from "../src/modules/memory/agent-avatar/agent-avatar.service";
 import { TEACHING_AGENT_ROLES } from "../src/modules/memory/teaching-agents/agent-roles";
 
 describe("agent team catalog", () => {
@@ -23,12 +25,32 @@ describe("agent team catalog", () => {
       })),
     };
 
+    const prisma = {
+      agentTeamBinding: {
+        findUnique: vi.fn(async () => null),
+        upsert: vi.fn(async ({ create }: { create: { studentId: string; roleKey: string } }) => ({
+          studentId: create.studentId,
+          roleKey: create.roleKey,
+          updatedAt: new Date("2026-07-15T00:00:00.000Z"),
+        })),
+        deleteMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [AgentTeamController],
       providers: [
         AgentTeamService,
         AuthGuard,
         { provide: AuthService, useValue: authService },
+        { provide: PrismaService, useValue: prisma },
+        {
+          provide: AgentAvatarService,
+          useValue: {
+            getAvatars: vi.fn(async () => []),
+            invalidateCache: vi.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -102,8 +124,44 @@ describe("agent team catalog", () => {
         defaultModel: "doubao-seed-2-1-turbo-260628",
         adapter: "ark",
         parallelResponsibilities: expect.arrayContaining([expect.any(String)]),
+        visualRole: expect.stringMatching(/^(browser|coder|files|ops|lead)$/),
       });
     }
+  });
+
+  it("reads, updates, and clears the current student's identity binding", async () => {
+    const current = await request(app.getHttpServer())
+      .get("/agent-team/me")
+      .set("Authorization", "Bearer test-token");
+    expect(current.status).toBe(200);
+    expect(current.body).toEqual({ binding: null });
+
+    const updated = await request(app.getHttpServer())
+      .put("/agent-team/me")
+      .set("Authorization", "Bearer test-token")
+      .send({ roleKey: "frontend-developer" });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      studentId: "student-1",
+      roleKey: "frontend-developer",
+      visualRole: "coder",
+    });
+
+    const cleared = await request(app.getHttpServer())
+      .delete("/agent-team/me")
+      .set("Authorization", "Bearer test-token");
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).toEqual({ cleared: true });
+  });
+
+  it("rejects an unknown identity binding", async () => {
+    const response = await request(app.getHttpServer())
+      .put("/agent-team/me")
+      .set("Authorization", "Bearer test-token")
+      .send({ roleKey: "unknown-role" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Unknown Agent role: unknown-role");
   });
 
   it("returns one mapped role by role key", async () => {
@@ -137,6 +195,7 @@ describe("agent team catalog", () => {
       defaultModel: "doubao-seed-2-1-turbo-260628",
       adapter: "ark",
       parallelResponsibilities: ["架构评审", "边界定义", "技术方案设计"],
+      visualRole: "coder",
     });
   });
 

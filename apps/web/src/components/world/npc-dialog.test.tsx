@@ -49,7 +49,7 @@ describe("NpcDialog", () => {
         reply: "",
         degraded: true,
       },
-      degraded: true,
+      degraded: false,
     });
 
     render(
@@ -145,7 +145,11 @@ describe("NpcDialog", () => {
 
     // Verify the message was sent via API
     expect(fetchNpcConversationSafe).toHaveBeenCalledTimes(2);
-    expect(fetchNpcConversationSafe).toHaveBeenLastCalledWith("pm", undefined, "进度如何？");
+    expect(fetchNpcConversationSafe).toHaveBeenLastCalledWith(
+      "pm",
+      undefined,
+      "进度如何？",
+    );
   });
 
   it("has the correct dialog role and aria-label", async () => {

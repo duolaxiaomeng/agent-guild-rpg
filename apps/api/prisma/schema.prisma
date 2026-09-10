@@ -21,6 +21,7 @@ enum GuildMembershipRole {
 enum MembershipStatus {
   active
   invited
+  declined
   removed
 }
 
@@ -64,7 +65,33 @@ enum ReviewDecision {
 enum ReviewStatus {
   queued
   ai_reviewed
+  needs_teacher
   teacher_decided
+}
+
+enum AgentTaskStatus {
+  blocked
+  queued
+  leased
+  running
+  completed
+  failed
+  needs_teacher
+  cancelled
+}
+
+enum AgentTaskResourceClass {
+  light
+  heavy
+}
+
+enum AgentTaskAttemptStatus {
+  leased
+  running
+  completed
+  failed
+  expired
+  cancelled
 }
 
 enum ContributionKind {
@@ -129,8 +156,11 @@ model User {
   displayName                   String
   isOnline                      Boolean                    @default(true)
   createdAt                     DateTime                   @default(now())
+  cohortId                      String?
+  cohort                        StudentCohort?             @relation(fields: [cohortId], references: [id], onDelete: SetNull)
   homestead                     Homestead?
   memberships                   GuildMembership[]
+  guildInvitationsSent          GuildMembership[]          @relation("GuildMembershipInviter")
   ownedGuilds                   Guild[]                    @relation("GuildOwner")
   agentSessions                 AgentSession[]
   agentPairings                 AgentPairing[]
@@ -151,6 +181,20 @@ model User {
   questDaysPublished            QuestDay[]                 @relation("QuestDayTeacher")
   websiteLotteryOptionsCreated  WebsiteLotteryOption[]     @relation("WebsiteLotteryOptionTeacher")
   websiteLotteryDraws           WebsiteLotteryDraw[]
+  agentTasks                    AgentTask[]
+  agentTeamBinding              AgentTeamBinding?
+  agentWorldState               AgentWorldState?
+
+  @@index([cohortId, role])
+}
+
+model StudentCohort {
+  id        String   @id
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  students  User[]
 }
 
 model CourseWorld {
@@ -162,6 +206,7 @@ model CourseWorld {
   quests            QuestDay[]
   submissions       AgentSubmission[]
   classroomSessions ClassroomSession[]
+  agentTasks        AgentTask[]
 }
 
 model Homestead {
@@ -180,18 +225,27 @@ model Guild {
   collaborationPoints Int               @default(0)
   owner               User              @relation("GuildOwner", fields: [ownerId], references: [id])
   memberships         GuildMembership[]
+  agentTasks          AgentTask[]
 }
 
 model GuildMembership {
-  id      String              @id @default(uuid())
-  guildId String
-  userId  String
-  role    GuildMembershipRole
-  status  MembershipStatus
-  guild   Guild               @relation(fields: [guildId], references: [id])
-  user    User                @relation(fields: [userId], references: [id])
+  id          String              @id @default(uuid())
+  guildId     String
+  userId      String
+  role        GuildMembershipRole
+  status      MembershipStatus
+  invitedById String?
+  invitedAt   DateTime?
+  respondedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  guild       Guild               @relation(fields: [guildId], references: [id])
+  user        User                @relation(fields: [userId], references: [id])
+  invitedBy   User?               @relation("GuildMembershipInviter", fields: [invitedById], references: [id])
 
   @@unique([guildId, userId])
+  @@index([userId, status])
+  @@index([invitedById, status, invitedAt])
 }
 
 model Room {
@@ -212,6 +266,7 @@ model RoomAccessGrant {
   createdAt DateTime @default(now())
 
   @@index([roomId, createdAt])
+  @@index([granteeId, status, expiresAt])
 }
 
 model ChatMessage {
@@ -243,6 +298,7 @@ model QuestDay {
   classroomSessions     ClassroomSession[]
   websiteLotteryOptions WebsiteLotteryOption[]
   websiteLotteryDraws   WebsiteLotteryDraw[]
+  agentTasks            AgentTask[]
 
   @@index([courseWorldId, publishedAt])
   @@index([teacherId, publishedAt])
@@ -289,6 +345,34 @@ model AgentSession {
   student     User               @relation(fields: [studentId], references: [id])
   submissions AgentSubmission[]
   connector   AgentConnector?
+
+  @@index([studentId, status, createdAt])
+}
+
+model AgentTeamBinding {
+  id        String   @id @default(cuid())
+  studentId String   @unique
+  roleKey   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([roleKey, updatedAt])
+}
+
+model AgentWorldState {
+  id          String   @id @default(cuid())
+  studentId   String   @unique
+  currentZone String   @default("workstations")
+  positionX   Float
+  positionY   Float
+  facing      String   @default("down")
+  revision    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([currentZone, updatedAt])
 }
 
 model AgentPairing {
@@ -320,12 +404,15 @@ model AgentConnector {
   student        User                 @relation(fields: [studentId], references: [id])
   agentSession   AgentSession         @relation(fields: [agentSessionId], references: [id])
   events         AgentEvent[]
+  claimedTasks   AgentTask[]          @relation("AgentTaskLeaseOwner")
+  taskAttempts   AgentTaskAttempt[]
 
   @@index([studentId, status, lastSeenAt])
 }
 
 model AgentEvent {
   id          String         @id @default(cuid())
+  eventId     String         @unique @default(cuid())
   connectorId String
   studentId   String
   dayId       String
@@ -339,10 +426,13 @@ model AgentEvent {
 
   @@index([studentId, dayId, occurredAt])
   @@index([connectorId, createdAt])
+  @@index([connectorId, occurredAt, id])
 }
 
 model AgentSubmission {
   id                   String                @id @default(uuid())
+  clientRequestId      String                @default(cuid())
+  pendingReviewKey     String?               @unique
   studentId            String
   courseWorldId        String
   dayId                String
@@ -360,6 +450,10 @@ model AgentSubmission {
   day                  QuestDay              @relation(fields: [dayId], references: [id])
   agentSession         AgentSession          @relation(fields: [agentSessionId], references: [id])
   reviewResult         ReviewResult?
+
+  @@unique([studentId, clientRequestId])
+  @@index([studentId, dayId, submittedAt])
+  @@index([courseWorldId, dayId, submittedAt])
 }
 
 model ReviewResult {
@@ -376,6 +470,9 @@ model ReviewResult {
   createdAt      DateTime        @default(now())
   submission     AgentSubmission @relation(fields: [submissionId], references: [id])
   reviewer       User?           @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([status, decidedAt])
 }
 
 model ContributionLog {
@@ -428,6 +525,89 @@ model AgentRunSnapshot {
   @@index([status, updatedAt])
 }
 
+model AgentTask {
+  id                   String                 @id @default(cuid())
+  runId                String                 @unique
+  courseWorldId        String?
+  dayId                String?
+  guildId              String?
+  studentId            String
+  provider             String
+  requiredCapabilities Json                   @default("[]")
+  priority             Int                    @default(0)
+  resourceClass        AgentTaskResourceClass @default(heavy)
+  status               AgentTaskStatus        @default(blocked)
+  payload              Json
+  blockedByCount       Int                    @default(0)
+  maxAttempts          Int                    @default(3)
+  attemptCount         Int                    @default(0)
+  availableAt          DateTime               @default(now())
+  leaseOwnerId         String?
+  heavyLeaseKey        String?                @unique
+  leaseTokenHash       String?                @unique
+  leasedAt             DateTime?
+  leaseExpiresAt       DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  failedAt             DateTime?
+  failureReason        String?
+  result               Json?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  courseWorld          CourseWorld?           @relation(fields: [courseWorldId], references: [id])
+  day                  QuestDay?              @relation(fields: [dayId], references: [id])
+  guild                Guild?                 @relation(fields: [guildId], references: [id])
+  student              User                   @relation(fields: [studentId], references: [id])
+  leaseOwner           AgentConnector?        @relation("AgentTaskLeaseOwner", fields: [leaseOwnerId], references: [id])
+  dependencies         AgentTaskDependency[]  @relation("AgentTaskDependencies")
+  dependents           AgentTaskDependency[]  @relation("AgentTaskDependents")
+  attempts             AgentTaskAttempt[]
+
+  @@index([status, resourceClass, availableAt, priority])
+  @@index([studentId, status, resourceClass])
+  @@index([courseWorldId, dayId, status])
+  @@index([guildId, status, createdAt])
+  @@index([runId, status])
+  @@index([leaseOwnerId, leaseExpiresAt])
+}
+
+model AgentTaskDependency {
+  id               String    @id @default(cuid())
+  taskId           String
+  dependencyTaskId String
+  createdAt        DateTime  @default(now())
+  task             AgentTask @relation("AgentTaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependencyTask   AgentTask @relation("AgentTaskDependents", fields: [dependencyTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependencyTaskId])
+  @@index([dependencyTaskId, taskId])
+}
+
+model AgentTaskAttempt {
+  id             String                 @id @default(cuid())
+  taskId         String
+  connectorId    String?
+  attemptNumber  Int
+  status         AgentTaskAttemptStatus @default(leased)
+  leaseTokenHash String                 @unique
+  leasedAt       DateTime               @default(now())
+  leaseExpiresAt DateTime
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  errorKind      String?
+  errorMessage   String?
+  result         Json?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  task           AgentTask              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  connector      AgentConnector?        @relation(fields: [connectorId], references: [id])
+
+  @@unique([taskId, attemptNumber])
+  @@index([taskId, status])
+  @@index([connectorId, status, leaseExpiresAt])
+  @@index([status, leaseExpiresAt])
+}
+
 model UserSession {
   id        String   @id @default(cuid())
   userId    String
@@ -437,6 +617,7 @@ model UserSession {
   user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model ClassroomSession {

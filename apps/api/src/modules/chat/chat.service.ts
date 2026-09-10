@@ -5,7 +5,11 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import { UserRole } from "@prisma/client";
+import {
+  AgentConnectorStatus,
+  AgentSessionStatus,
+  UserRole
+} from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
 
@@ -59,6 +63,11 @@ export class ChatService {
       where: { id: ownerId },
       include: {
         agentSessions: {
+          include: {
+            connector: {
+              select: { status: true, lastSeenAt: true }
+            }
+          },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: 1
         },
@@ -117,6 +126,11 @@ export class ChatService {
 
     const latestSession = student.agentSessions[0];
     const latestSubmission = student.submissions[0];
+    const connectorIsFresh = Boolean(
+      latestSession?.status !== AgentSessionStatus.failed &&
+      latestSession.connector?.status === AgentConnectorStatus.online &&
+      latestSession.connector.lastSeenAt >= new Date(Date.now() - 75_000)
+    );
     const contributionByActor = new Map<
       string,
       { studentId: string; studentName: string; points: number }
@@ -143,6 +157,8 @@ export class ChatService {
       hasMore,
       studentId: student.id,
       studentName: student.displayName,
+      agentSessionId: connectorIsFresh ? latestSession?.id ?? null : null,
+      canSubmit: viewerRole === "owner" && connectorIsFresh,
       agentLabel: this.toAgentLabel(latestSession?.provider),
       sessionStatus: latestSession?.status ?? "failed",
       sessionSummary:

@@ -8,6 +8,7 @@ import {
   Inject,
   Logger,
   NotFoundException,
+  Optional,
   Post,
   Query,
   UseGuards
@@ -26,6 +27,7 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { AgentAvatarService } from "../memory/agent-avatar/agent-avatar.service";
 import { MemoryService } from "../memory/memory.service";
 import { RealtimeGateway } from "../realtime/realtime.gateway";
+import { AgentWorldService } from "../realtime/agent-world.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
 class DecideReviewDto {
@@ -54,7 +56,9 @@ export class ReviewsController {
     @Inject(RealtimeGateway)
     private readonly realtimeGateway: RealtimeGateway,
     @Inject(AgentAvatarService)
-    private readonly avatarService: AgentAvatarService
+    private readonly avatarService: AgentAvatarService,
+    @Optional() @Inject(AgentWorldService)
+    private readonly agentWorldService?: AgentWorldService,
   ) {}
 
   @ApiOperation({
@@ -62,7 +66,7 @@ export class ReviewsController {
     description: "教师专用端点，返回所有学生的提交评审状态，包含汇总统计信息。支持分页"
   })
   @ApiQuery({ name: "page", required: false, type: Number, description: "页码，默认 1" })
-  @ApiQuery({ name: "pageSize", required: false, type: Number, description: "每页条数，默认 20" })
+  @ApiQuery({ name: "pageSize", required: false, type: Number, description: "每页条数，默认 50" })
   @Get()
   async list(
     @CurrentUser() user: { id: string; role: UserRole; displayName: string },
@@ -71,11 +75,11 @@ export class ReviewsController {
   ) {
     this.assertTeacher(user.role);
 
-    // R-024: Add pagination with default page=1, pageSize=20
+    // 40 人课堂默认一次可看完一页，同时保留最大 100 条保护。
     const pageNum = page ? Math.max(1, parseInt(page, 10) || 1) : 1;
     const pageSizeNum = Math.min(
       100,
-      Math.max(1, pageSize ? parseInt(pageSize, 10) || 20 : 20)
+      Math.max(1, pageSize ? parseInt(pageSize, 10) || 50 : 50)
     );
     const skip = (pageNum - 1) * pageSizeNum;
 
@@ -113,14 +117,22 @@ export class ReviewsController {
         this.prisma.reviewResult.count(),
         this.prisma.reviewResult.count({
           where: {
-            status: { in: [ReviewStatus.queued, ReviewStatus.ai_reviewed] }
+            status: {
+              in: [
+                ReviewStatus.queued,
+                ReviewStatus.ai_reviewed,
+                ReviewStatus.needs_teacher
+              ]
+            }
           }
         }),
         this.prisma.reviewResult.count({
           where: { status: ReviewStatus.queued }
         }),
         this.prisma.reviewResult.count({
-          where: { status: ReviewStatus.ai_reviewed }
+          where: {
+            status: { in: [ReviewStatus.ai_reviewed, ReviewStatus.needs_teacher] }
+          }
         }),
         this.prisma.reviewResult.count({
           where: {
@@ -130,8 +142,13 @@ export class ReviewsController {
         }),
         this.prisma.reviewResult.count({
           where: {
-            status: ReviewStatus.teacher_decided,
-            decision: { in: [ReviewDecision.adjust, ReviewDecision.reject] }
+            OR: [
+              { status: ReviewStatus.needs_teacher },
+              {
+                status: ReviewStatus.teacher_decided,
+                decision: { in: [ReviewDecision.adjust, ReviewDecision.reject] }
+              }
+            ]
           }
         })
       ]);
@@ -173,20 +190,28 @@ export class ReviewsController {
       );
     }
 
-    // R-018/A-017: Use CAS (Compare-And-Swap) via updateMany to prevent
-    // TOCTOU race condition. Only updates if status is still 'ai_reviewed'.
-    const result = await this.prisma.reviewResult.updateMany({
-      where: {
-        submissionId: body.submissionId,
-        status: ReviewStatus.ai_reviewed
-      },
-      data: {
-        status: ReviewStatus.teacher_decided,
-        reviewerId: user.id,
-        finalScore: body.finalScore,
-        decision: ReviewDecision[body.decision as keyof typeof ReviewDecision],
-        decidedAt: new Date()
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.reviewResult.updateMany({
+        where: {
+          submissionId: body.submissionId,
+          status: { in: [ReviewStatus.ai_reviewed, ReviewStatus.needs_teacher] }
+        },
+        data: {
+          status: ReviewStatus.teacher_decided,
+          reviewerId: user.id,
+          finalScore: body.finalScore,
+          decision: ReviewDecision[body.decision as keyof typeof ReviewDecision],
+          decidedAt: new Date()
+        }
+      });
+
+      if (updated.count > 0) {
+        await tx.agentSubmission.update({
+          where: { id: body.submissionId },
+          data: { pendingReviewKey: null }
+        });
       }
+      return updated;
     });
 
     if (result.count === 0) {
@@ -306,7 +331,9 @@ export class ReviewsController {
       suggestedScore: review.suggestedScore,
       finalScore: review.status === ReviewStatus.teacher_decided ? review.finalScore : null,
       decision: review.status === ReviewStatus.teacher_decided ? review.decision : null,
-      isPendingTeacherDecision: review.status === ReviewStatus.ai_reviewed,
+      isPendingTeacherDecision:
+        review.status === ReviewStatus.ai_reviewed ||
+        review.status === ReviewStatus.needs_teacher,
       rationale: review.rationale ?? "AI review queued.",
       dayLabel: this.toDayLabel(review.submission.day.id),
       submittedAt: review.submission.submittedAt.toISOString()
@@ -326,6 +353,16 @@ export class ReviewsController {
   private async broadcastAgentStatus(studentId: string) {
     const state = await this.avatarService.getAvatarState(studentId);
     if (state) {
+      let movement: Awaited<ReturnType<AgentWorldService["resetToRoleHome"]>>;
+      if (
+        (state.status === "working" || state.status === "reviewing") &&
+        state.agentRole
+      ) {
+        movement = await this.agentWorldService?.resetToRoleHome(
+          studentId,
+          state.agentRole,
+        );
+      }
       this.realtimeGateway.broadcastAgentStatus({
         studentId: state.studentId,
         displayName: state.displayName,
@@ -333,6 +370,7 @@ export class ReviewsController {
         currentZone: state.currentZone,
         activitySummary: state.activitySummary
       });
+      if (movement) this.realtimeGateway.broadcastAvatarMovement(movement);
     }
   }
 }

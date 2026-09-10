@@ -16,6 +16,7 @@ import { chat, generateReflections, isArkConfigured } from "../src/modules/memor
 import { AppModule } from "../src/app.module";
 import { ReviewProcessingService } from "../src/modules/queue/review.processor";
 import { ReviewQueueService } from "../src/modules/queue/review.queue";
+import { PresenceService } from "../src/modules/realtime/presence.service";
 import { prepareTestDatabase } from "./support/test-database";
 import {
   buildSubmissionBody,
@@ -74,6 +75,10 @@ describe("multi-agent e2e", () => {
     await app.init();
     await app.listen(0);
     reviewProcessingService = app.get(ReviewProcessingService);
+    const presence = app.get(PresenceService);
+    for (const studentId of STUDENT_IDS) {
+      presence.connect(studentId, `test-socket-${studentId}`);
+    }
   });
 
   afterAll(async () => {

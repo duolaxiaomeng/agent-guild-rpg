@@ -11,12 +11,17 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { AgentTaskResourceClass } from "@prisma/client";
 import {
   IsArray,
+  IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
 } from "class-validator";
 import { AuthGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -34,6 +39,15 @@ class CreateAgentRunDto {
   @MaxLength(128)
   runId!: string;
 
+  @IsString()
+  @IsNotEmpty()
+  studentId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  provider!: string;
+
   @IsOptional()
   input?: unknown;
 
@@ -41,6 +55,39 @@ class CreateAgentRunDto {
   @IsArray()
   @IsString({ each: true })
   dependencies?: string[];
+
+  @IsOptional()
+  @IsString()
+  courseWorldId?: string;
+
+  @IsOptional()
+  @IsString()
+  dayId?: string;
+
+  @IsOptional()
+  @IsString()
+  guildId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  requiredCapabilities?: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(-1000)
+  @Max(1000)
+  priority?: number;
+
+  @IsOptional()
+  @IsEnum(AgentTaskResourceClass)
+  resourceClass?: AgentTaskResourceClass;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  maxAttempts?: number;
 }
 
 @ApiTags("agent-orchestration")
@@ -68,6 +115,13 @@ export class AgentOrchestrationController {
   list(@CurrentUser() actor: OrchestrationActor) {
     this.assertTeacher(actor);
     return this.orchestrationService.list();
+  }
+
+  @ApiOperation({ summary: "列出当前学生被分配的 Agent 运行任务" })
+  @Get("my-runs")
+  listMine(@CurrentUser() actor: OrchestrationActor) {
+    this.assertStudent(actor);
+    return this.orchestrationService.listForStudent(actor.id);
   }
 
   @ApiOperation({ summary: "获取 Agent 运行任务详情" })
@@ -124,6 +178,12 @@ export class AgentOrchestrationController {
   private assertTeacher(actor: OrchestrationActor | undefined): void {
     if (actor?.role !== "teacher") {
       throw new ForbiddenException("Only teachers can manage Agent runs");
+    }
+  }
+
+  private assertStudent(actor: OrchestrationActor | undefined): void {
+    if (actor?.role !== "student") {
+      throw new ForbiddenException("Only students can read their assigned Agent runs");
     }
   }
 }

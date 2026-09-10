@@ -165,24 +165,29 @@ export default function LoginPage() {
           </label>
 
           {mode === "register" ? (
-            <label className="login-field" htmlFor="registration-code">
-              <span className="login-field__label">内部注册码</span>
-              <input
-                className="login-field__input"
-                id="registration-code"
-                type="password"
-                value={registrationCode}
-                onChange={(event) => {
-                  setRegistrationCode(event.target.value);
-                  clearError();
-                }}
-                placeholder="输入老师提供的注册码"
-                autoComplete="off"
-                aria-invalid={errorMessage ? "true" : undefined}
-                aria-describedby={errorMessage ? "login-error" : undefined}
-                required
-              />
-            </label>
+            <>
+              <label className="login-field" htmlFor="registration-code">
+                <span className="login-field__label">内部注册码</span>
+                <input
+                  className="login-field__input"
+                  id="registration-code"
+                  type="password"
+                  value={registrationCode}
+                  onChange={(event) => {
+                    setRegistrationCode(event.target.value);
+                    clearError();
+                  }}
+                  placeholder="输入老师提供的注册码"
+                  autoComplete="off"
+                  aria-invalid={errorMessage ? "true" : undefined}
+                  aria-describedby={errorMessage ? "login-error" : undefined}
+                  required
+                />
+              </label>
+              <p style={{ margin: "-6px 0 2px", color: "#93c5fd", fontSize: "12px" }}>
+                当前注册码对应班级：船说agent第一期班
+              </p>
+            </>
           ) : null}
 
           <button

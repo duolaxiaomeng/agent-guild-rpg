@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import type { AgentRole, AgentVisualRole } from "contracts";
+
 export type ConnectorProfile = {
   connectorId: string;
   agentSessionId: string;
@@ -5,23 +8,91 @@ export type ConnectorProfile = {
   clientName: string;
   status: "online" | "offline" | "revoked";
   capabilities: string[];
+  roleKey: AgentRole | null;
+  visualRole: AgentVisualRole | null;
   connectedAt: string;
   lastSeenAt: string;
 };
 
 export type AgentEventInput = {
+  eventId?: string;
   dayId: string;
   type: string;
   payload: Record<string, unknown>;
   occurredAt?: string;
 };
 
-export type AgentEvent = AgentEventInput & {
+export type NormalizedAgentEventInput = AgentEventInput & {
+  eventId: string;
+  occurredAt: string;
+};
+
+export type AgentEvent = NormalizedAgentEventInput & {
   id: string;
   connectorId: string;
   studentId: string;
   createdAt: string;
-  occurredAt: string;
+};
+
+export type AgentEventCursorQuery = {
+  cursor?: string;
+  limit?: number;
+};
+
+export type AgentEventCursorPage = {
+  events: AgentEvent[];
+  nextCursor: string | null;
+};
+
+export type AgentTaskResourceClass = "light" | "heavy";
+export type AgentTaskStatus =
+  | "blocked"
+  | "queued"
+  | "leased"
+  | "running"
+  | "completed"
+  | "failed"
+  | "needs_teacher"
+  | "cancelled";
+export type AgentTaskFailureKind = "infrastructure" | "business";
+
+export type AgentConnectorTask = {
+  id: string;
+  runId: string;
+  scope: {
+    courseWorldId: string | null;
+    dayId: string | null;
+    guildId: string | null;
+    studentId: string;
+  };
+  provider: string;
+  requiredCapabilities: string[];
+  priority: number;
+  resourceClass: AgentTaskResourceClass;
+  status: AgentTaskStatus;
+  payload: Record<string, unknown>;
+  attemptCount: number;
+  maxAttempts: number;
+  createdAt: string;
+};
+
+export type AgentTaskClaimRequest = {
+  lightCapacity?: number;
+  heavyCapacity?: number;
+  waitSeconds?: number;
+};
+
+export type AgentTaskLease = {
+  task: AgentConnectorTask;
+  leaseToken: string;
+  leaseExpiresAt: string;
+  heartbeatIntervalSeconds: number;
+};
+
+export type AgentTaskHeartbeatResponse = {
+  taskId: string;
+  status: AgentTaskStatus;
+  leaseExpiresAt: string;
 };
 
 type ConnectResponse = ConnectorProfile & {
@@ -33,6 +104,7 @@ export type AgentConnectorClientOptions = {
   provider: string;
   clientName: string;
   capabilities: string[];
+  roleKey?: AgentRole;
   requestTimeoutMs?: number;
   heartbeatMaxRetries?: number;
   retryDelayMs?: number;
@@ -79,7 +151,8 @@ export class AgentConnectorClient {
       connectionCredential: this.options.connectionCredential,
       provider: this.options.provider,
       clientName: this.options.clientName,
-      capabilities: this.options.capabilities
+      capabilities: this.options.capabilities,
+      ...(this.options.roleKey ? { roleKey: this.options.roleKey } : {})
     });
 
     this.token = response.connectorToken;
@@ -91,46 +164,137 @@ export class AgentConnectorClient {
     return this.post<{ connectorId: string; status: string; lastSeenAt: string }>(
       "/agent-connectors/heartbeat",
       { status },
-      true,
-      true
+      { requiresToken: true, retryable: true }
     );
   }
 
   async recordEvent(input: AgentEventInput) {
-    return this.post<AgentEvent>("/agent-connectors/events", input, true);
+    return this.post<AgentEvent>(
+      "/agent-connectors/events",
+      normalizeAgentEvent(input),
+      { requiresToken: true }
+    );
+  }
+
+  async recordEvents(inputs: AgentEventInput[]) {
+    return this.post<{ events: AgentEvent[] }>(
+      "/agent-connectors/events/batch",
+      { events: inputs.map(normalizeAgentEvent) },
+      { requiresToken: true, retryable: true }
+    );
+  }
+
+  async readEventCursor(query: AgentEventCursorQuery = {}) {
+    const search = new URLSearchParams();
+    if (query.cursor) search.set("cursor", query.cursor);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    const suffix = search.size > 0 ? `?${search.toString()}` : "";
+    return this.get<AgentEventCursorPage>(
+      `/agent-connectors/events/cursor${suffix}`,
+      { requiresToken: true, retryable: true }
+    );
+  }
+
+  async claimTask(
+    input: AgentTaskClaimRequest = {},
+    signal?: AbortSignal
+  ): Promise<AgentTaskLease | null> {
+    const waitSeconds = input.waitSeconds ?? 25;
+    return this.post<AgentTaskLease | null>(
+      "/agent-connectors/tasks/claim",
+      input,
+      {
+        requiresToken: true,
+        acceptNoContent: true,
+        signal,
+        timeoutMs: Math.max(this.requestTimeoutMs, waitSeconds * 1_000 + 5_000)
+      }
+    );
+  }
+
+  async heartbeatTask(taskId: string, leaseToken: string) {
+    return this.post<AgentTaskHeartbeatResponse>(
+      `/agent-connectors/tasks/${encodeURIComponent(taskId)}/heartbeat`,
+      { leaseToken },
+      { requiresToken: true, retryable: true }
+    );
+  }
+
+  async completeTask(taskId: string, leaseToken: string, result: unknown) {
+    return this.post<AgentConnectorTask>(
+      `/agent-connectors/tasks/${encodeURIComponent(taskId)}/complete`,
+      { leaseToken, result },
+      { requiresToken: true, retryable: true }
+    );
+  }
+
+  async failTask(
+    taskId: string,
+    leaseToken: string,
+    kind: AgentTaskFailureKind,
+    error: string
+  ) {
+    return this.post<AgentConnectorTask>(
+      `/agent-connectors/tasks/${encodeURIComponent(taskId)}/fail`,
+      { leaseToken, kind, error },
+      { requiresToken: true, retryable: true }
+    );
   }
 
   private async post<T>(
     path: string,
     body: unknown,
-    requiresToken = false,
-    retryable = false
-  ) {
-    if (requiresToken && !this.token) {
-      throw new Error("Connector must connect before sending authenticated events");
+    options: RequestOptions = {}
+  ): Promise<T> {
+    return this.request<T>(path, "POST", body, options);
+  }
+
+  private async get<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>(path, "GET", undefined, options);
+  }
+
+  private async request<T>(
+    path: string,
+    method: "GET" | "POST",
+    body: unknown,
+    options: RequestOptions
+  ): Promise<T> {
+    if (options.requiresToken && !this.token) {
+      throw new Error("Connector must connect before sending authenticated requests");
     }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json"
     };
 
-    if (requiresToken) {
+    if (options.requiresToken) {
       headers["X-Agent-Connector-Token"] = this.token as string;
     }
 
-    const attempts = retryable ? this.heartbeatMaxRetries + 1 : 1;
+    const requestTimeoutMs = options.timeoutMs ?? this.requestTimeoutMs;
+    const attempts = options.retryable ? this.heartbeatMaxRetries + 1 : 1;
     let lastError: unknown;
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const response = await this.fetchWithTimeout(path, headers, body);
+        const response = await this.fetchWithTimeout(
+          path,
+          method,
+          headers,
+          body,
+          requestTimeoutMs,
+          options.signal
+        );
 
         if (response.ok) {
+          if (response.status === 204 && options.acceptNoContent) {
+            return null as T;
+          }
           return response.json() as Promise<T>;
         }
 
         if (
-          retryable &&
+          options.retryable &&
           RETRYABLE_STATUS_CODES.has(response.status) &&
           attempt + 1 < attempts
         ) {
@@ -141,33 +305,43 @@ export class AgentConnectorClient {
         throw new Error(`Agent connector request failed: ${response.status}`);
       } catch (error) {
         lastError = error;
+        if (options.signal?.aborted) {
+          throw new Error("Agent connector request was cancelled");
+        }
         if (!isTransportError(error)) throw error;
-        if (!retryable || attempt + 1 >= attempts) {
-          throw normalizeTransportError(error, this.requestTimeoutMs);
+        if (!options.retryable || attempt + 1 >= attempts) {
+          throw normalizeTransportError(error, requestTimeoutMs);
         }
         await this.waitBeforeRetry(attempt);
       }
     }
 
-    throw normalizeTransportError(lastError, this.requestTimeoutMs);
+    throw normalizeTransportError(lastError, requestTimeoutMs);
   }
 
   private async fetchWithTimeout(
     path: string,
+    method: "GET" | "POST",
     headers: Record<string, string>,
-    body: unknown
+    body: unknown,
+    timeoutMs: number,
+    externalSignal?: AbortSignal
   ) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const handleExternalAbort = () => controller.abort(externalSignal?.reason);
+    externalSignal?.addEventListener("abort", handleExternalAbort, { once: true });
+    if (externalSignal?.aborted) handleExternalAbort();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetch(`${this.apiBaseUrl}${path}`, {
-        method: "POST",
+        method,
         headers,
-        body: JSON.stringify(body),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: controller.signal
       });
     } finally {
       clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", handleExternalAbort);
     }
   }
 
@@ -176,6 +350,14 @@ export class AgentConnectorClient {
     return new Promise<void>((resolve) => setTimeout(resolve, delay));
   }
 }
+
+type RequestOptions = {
+  requiresToken?: boolean;
+  retryable?: boolean;
+  acceptNoContent?: boolean;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+};
 
 type ConnectionCredentialPayload = {
   version: 1;
@@ -271,4 +453,12 @@ function boundedNonNegativeInteger(
   maximum: number
 ) {
   return Math.min(nonNegativeInteger(value, fallback), maximum);
+}
+
+function normalizeAgentEvent(input: AgentEventInput): NormalizedAgentEventInput {
+  return {
+    ...input,
+    eventId: input.eventId ?? `connector-event-${randomUUID()}`,
+    occurredAt: input.occurredAt ?? new Date().toISOString()
+  };
 }

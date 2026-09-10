@@ -7,7 +7,10 @@ import {
   buildWorkstationsLayout,
   buildWorkstationsWalkGraph,
   buildWorldPostBoot,
+  buildZoneAgentRoster,
   resolveActorLayering,
+  resolveControlledDestination,
+  shouldRenderOnlineAvatar,
   shouldRebuildSceneForResize,
 } from "./phaser-scene";
 
@@ -19,6 +22,124 @@ describe("buildWorldPostBoot", () => {
     postBoot({ scene: { start } });
 
     expect(start).toHaveBeenCalledWith("lobby");
+  });
+});
+
+describe("public hall avatar visibility", () => {
+  it("renders a character only when the backend confirms an online avatar", () => {
+    expect(shouldRenderOnlineAvatar(undefined)).toBe(false);
+    expect(shouldRenderOnlineAvatar({ studentId: "student-1", displayName: "Lin", status: "offline", currentZone: "lobby", lastActiveAt: "", activitySummary: "离线" })).toBe(false);
+    expect(shouldRenderOnlineAvatar({ studentId: "student-1", displayName: "Lin", status: "online", currentZone: "lobby", lastActiveAt: "", activitySummary: "在线" })).toBe(true);
+  });
+
+  it("maps real connected account ids onto runtime character slots", () => {
+    const lobby = ZONE_DEFS.find((zone) => zone.id === "lobby")!;
+    const roster = buildZoneAgentRoster(
+      lobby,
+      [{
+        studentId: "teacher-real-id",
+        displayName: "Teacher Lin",
+        status: "online",
+        currentZone: "lobby",
+        lastActiveAt: "",
+        activitySummary: "Codex CLI 在线",
+        ownerRole: "teacher",
+        agentRole: null,
+        visualRole: "lead",
+      }],
+      "teacher-real-id",
+    );
+
+    expect(roster).toHaveLength(1);
+    expect(roster[0]).toMatchObject({
+      id: "connected-agent-teacher-real-id",
+      studentId: "teacher-real-id",
+      label: "Teacher Lin",
+      routeId: undefined,
+    });
+  });
+
+  it("keeps click-to-move destinations inside the visible room", () => {
+    expect(resolveControlledDestination(-20, 900, 960, 540)).toEqual({
+      x: 36,
+      y: 492,
+    });
+  });
+
+  it("renders only the signed-in student's selected Agent in a private workstation", () => {
+    const workstations = ZONE_DEFS.find((zone) => zone.id === "workstations")!;
+    const roster = buildZoneAgentRoster(
+      workstations,
+      [
+        {
+          studentId: "student-self",
+          displayName: "自己的 Agent",
+          status: "online",
+          currentZone: "workstations",
+          lastActiveAt: null,
+          activitySummary: "空闲",
+          agentRole: "qa",
+          visualRole: "files",
+          position: {
+            zone: "workstations",
+            x: 500,
+            y: 300,
+            facing: "left",
+            revision: 7,
+            updatedAt: "2026-07-15T08:00:00.000Z",
+          },
+        },
+        {
+          studentId: "student-other",
+          displayName: "别人的 Agent",
+          status: "online",
+          currentZone: "workstations",
+          lastActiveAt: null,
+          activitySummary: "空闲",
+          agentRole: "frontend-developer",
+          visualRole: "coder",
+          position: {
+            zone: "workstations",
+            x: 480,
+            y: 140,
+            facing: "down",
+            revision: 2,
+            updatedAt: "2026-07-15T08:00:00.000Z",
+          },
+        },
+      ],
+      "student-self",
+    );
+
+    expect(roster).toHaveLength(1);
+    expect(roster[0]).toMatchObject({
+      studentId: "student-self",
+      x: 500,
+      y: 300,
+      facing: "left",
+      outfit: "purple-shirt",
+      routeId: undefined,
+    });
+  });
+
+  it("does not create a fake workstation Agent before role and position truth exist", () => {
+    const workstations = ZONE_DEFS.find((zone) => zone.id === "workstations")!;
+    const roster = buildZoneAgentRoster(
+      workstations,
+      [{
+        studentId: "student-self",
+        displayName: "尚未选角",
+        status: "online",
+        currentZone: "workstations",
+        lastActiveAt: null,
+        activitySummary: "等待接入",
+        agentRole: null,
+        visualRole: null,
+      }],
+      "student-self",
+    );
+
+    expect(roster).toEqual([]);
   });
 });
 

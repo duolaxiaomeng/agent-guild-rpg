@@ -1,10 +1,14 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
+import { AgentConnectorStatus, AgentTaskStatus, UserRole } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
+import { PresenceService } from "../../realtime/presence.service";
+import { resolveAgentVisualRole } from "../../agent-team/agent-team.mapping";
 
 /** Time windows (in milliseconds) for status derivation. */
-const WORKING_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const ONLINE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 const IDLE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+const AVATAR_CACHE_TTL_MS = 1_500;
+const CONNECTOR_ONLINE_WINDOW_MS = 75 * 1000;
 
 /** Default zone for student agents. */
 const DEFAULT_ZONE = "workstations";
@@ -29,13 +33,31 @@ export type AvatarState = {
   currentZone: AvatarZone;
   lastActiveAt: string | null;
   activitySummary: string;
+  ownerRole?: "teacher" | "student";
+  agentRole?: string | null;
+  visualRole?: "browser" | "coder" | "files" | "ops" | "lead" | null;
 };
 
 @Injectable()
 export class AgentAvatarService {
+  private readonly presence: PresenceService;
+  private readonly avatarCache = new Map<
+    string,
+    { expiresAt: number; value: AvatarState[] }
+  >();
+  private readonly avatarLoads = new Map<string, Promise<AvatarState[]>>();
+
   constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService
-  ) {}
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(PresenceService) presence?: PresenceService
+  ) {
+    this.presence = presence ?? new PresenceService();
+  }
+
+  invalidateCache() {
+    this.avatarCache.clear();
+    this.avatarLoads.clear();
+  }
 
   /**
    * Derive the avatar state for a single student.
@@ -44,14 +66,40 @@ export class AgentAvatarService {
   async getAvatarState(studentId: string): Promise<AvatarState | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: studentId },
-      select: { id: true, displayName: true, isOnline: true }
+      select: {
+        id: true,
+        role: true,
+        displayName: true,
+        isOnline: true,
+        agentTeamBinding: { select: { roleKey: true } },
+        agentConnectors: {
+          where: {
+            status: AgentConnectorStatus.online,
+            lastSeenAt: {
+              gt: new Date(Date.now() - CONNECTOR_ONLINE_WINDOW_MS),
+            },
+          },
+          take: 1,
+          select: { id: true },
+        },
+      }
     });
 
     if (!user) {
       return null;
     }
 
-    return this.deriveAvatarState(user.id, user.displayName, user.isOnline);
+    const state = await this.deriveAvatarState(
+      user.id,
+      user.displayName,
+      this.presence.isOnline(user.id) || user.agentConnectors.length > 0,
+    );
+    return this.withWorldIdentity(
+      state,
+      user.id,
+      user.role,
+      user.agentTeamBinding?.roleKey,
+    );
   }
 
   /**
@@ -60,24 +108,83 @@ export class AgentAvatarService {
    * Uses batch queries to avoid N+1 problems.
    */
   async getAvatars(zone?: AvatarZone): Promise<AvatarState[]> {
+    const cacheKey = zone ?? "*";
+    const cached = this.avatarCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    const existingLoad = this.avatarLoads.get(cacheKey);
+    if (existingLoad) {
+      return existingLoad;
+    }
+
+    const load = this.loadAvatars(zone)
+      .then((value) => {
+        this.avatarCache.set(cacheKey, {
+          expiresAt: Date.now() + AVATAR_CACHE_TTL_MS,
+          value
+        });
+        return value;
+      })
+      .finally(() => {
+        this.avatarLoads.delete(cacheKey);
+      });
+    this.avatarLoads.set(cacheKey, load);
+    return load;
+  }
+
+  private async loadAvatars(zone?: AvatarZone): Promise<AvatarState[]> {
+    const onlineConnectors = await this.prisma.agentConnector.findMany({
+      where: {
+        status: AgentConnectorStatus.online,
+        lastSeenAt: {
+          gt: new Date(Date.now() - CONNECTOR_ONLINE_WINDOW_MS),
+        },
+      },
+      select: { studentId: true },
+    });
+    const onlineUserIds = [
+      ...new Set([
+        ...this.presence.onlineUserIds(),
+        ...onlineConnectors.map((connector) => connector.studentId),
+      ]),
+    ];
+    if (onlineUserIds.length === 0) return [];
+
     const students = await this.prisma.user.findMany({
-      where: { role: "student" },
-      select: { id: true, displayName: true, isOnline: true }
+      where: {
+        role: { in: [UserRole.student, UserRole.teacher] },
+        id: { in: onlineUserIds },
+      },
+      select: {
+        id: true,
+        role: true,
+        displayName: true,
+        agentTeamBinding: { select: { roleKey: true } },
+      }
     });
 
     const studentIds = students.map((s) => s.id);
     const now = Date.now();
 
     // Batch queries for ALL students at once
-    const [recentSubmissions, pendingReviews, recentMemories, idleChecks] =
+    const [activeTasks, pendingReviews, recentMemories, idleChecks] =
       await Promise.all([
-        this.prisma.agentSubmission.findMany({
+        this.prisma.agentTask.findMany({
           where: {
             studentId: { in: studentIds },
-            submittedAt: { gte: new Date(now - WORKING_WINDOW_MS) }
+            status: { in: [AgentTaskStatus.leased, AgentTaskStatus.running] },
           },
-          orderBy: { submittedAt: "desc" },
-          select: { studentId: true, id: true, workSummary: true, submittedAt: true }
+          orderBy: { updatedAt: "desc" },
+          select: {
+            studentId: true,
+            id: true,
+            runId: true,
+            leasedAt: true,
+            startedAt: true,
+            updatedAt: true,
+          },
         }),
         this.prisma.reviewResult.findMany({
           where: {
@@ -112,7 +219,7 @@ export class AgentAvatarService {
       ]);
 
     // Group by studentId — first entry per student is the most recent (already ordered desc)
-    const submissionsByStudent = this.groupByField(recentSubmissions, "studentId");
+    const tasksByStudent = this.groupByField(activeTasks, "studentId");
     const reviewsByStudent = this.groupByFn(pendingReviews, (r) => r.submission.studentId);
     const memoriesByStudent = this.groupByField(recentMemories, "studentId");
     const idleByStudent = this.groupByField(idleChecks, "studentId");
@@ -123,18 +230,24 @@ export class AgentAvatarService {
       const state = this.deriveAvatarStateFromBatch(
         student.id,
         student.displayName,
-        student.isOnline,
-        submissionsByStudent.get(student.id)?.[0] ?? null,
+        true,
+        tasksByStudent.get(student.id)?.[0] ?? null,
         reviewsByStudent.get(student.id)?.[0] ?? null,
         memoriesByStudent.get(student.id)?.[0] ?? null,
         idleByStudent.get(student.id)?.[0] ?? null
       );
+      const decoratedState = this.withWorldIdentity(
+        state,
+        student.id,
+        student.role,
+        student.agentTeamBinding?.roleKey,
+      );
 
-      if (zone && state.currentZone !== zone) {
+      if (zone && decoratedState.currentZone !== zone) {
         continue;
       }
 
-      states.push(state);
+      states.push(decoratedState);
     }
 
     return states;
@@ -147,6 +260,18 @@ export class AgentAvatarService {
     return this.getAvatars(zone);
   }
 
+  async moveAvatar(studentId: string, zone: AvatarZone): Promise<AvatarState | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: studentId },
+      select: { id: true },
+    });
+    if (!user) return null;
+
+    this.presence.setZone(studentId, zone);
+    this.invalidateCache();
+    return this.getAvatarState(studentId);
+  }
+
   /**
    * Derive avatar state from pre-fetched batch data (no DB queries).
    */
@@ -154,7 +279,13 @@ export class AgentAvatarService {
     studentId: string,
     displayName: string,
     isOnline: boolean,
-    recentSubmission: { id: string; workSummary: string; submittedAt: Date } | null,
+    activeTask: {
+      id: string;
+      runId: string;
+      leasedAt: Date | null;
+      startedAt: Date | null;
+      updatedAt: Date;
+    } | null,
     pendingReview: { id: string; status: string; suggestedScore: number | null; createdAt: Date; submission: { workSummary: string } } | null,
     recentMemory: { id: string; content: string; createdAt: Date } | null,
     idleCheck: { submittedAt: Date } | null
@@ -170,16 +301,16 @@ export class AgentAvatarService {
       };
     }
 
-    // 1. Working — recent submission
-    if (recentSubmission) {
+    // 1. Working — a real connector task is leased or running.
+    if (activeTask) {
+      const activeAt = activeTask.startedAt ?? activeTask.leasedAt ?? activeTask.updatedAt;
       return {
         studentId,
         displayName,
         status: "working",
         currentZone: DEFAULT_ZONE as AvatarZone,
-        lastActiveAt: recentSubmission.submittedAt.toISOString(),
-        activitySummary:
-          recentSubmission.workSummary.slice(0, 60) || "正在提交任务..."
+        lastActiveAt: activeAt.toISOString(),
+        activitySummary: `正在执行本地 Agent 任务 ${activeTask.runId}`,
       };
     }
 
@@ -237,7 +368,7 @@ export class AgentAvatarService {
    * Derive avatar state from Prisma queries (used for single-student lookup).
    *
    * Status precedence (highest first):
-   *   1. working   — submission created within WORKING_WINDOW
+   *   1. working   — a connector task is leased or running
    *   2. reviewing — has a pending review (queued or ai_reviewed, not teacher_decided)
    *   3. online    — activity (memory/submission) within ONLINE_WINDOW
    *   4. idle      — online but no recent activity
@@ -261,14 +392,20 @@ export class AgentAvatarService {
 
     const now = Date.now();
 
-    const [recentSubmission, pendingReview, recentMemory] = await Promise.all([
-      this.prisma.agentSubmission.findFirst({
+    const [activeTask, pendingReview, recentMemory] = await Promise.all([
+      this.prisma.agentTask.findFirst({
         where: {
           studentId,
-          submittedAt: { gte: new Date(now - WORKING_WINDOW_MS) }
+          status: { in: [AgentTaskStatus.leased, AgentTaskStatus.running] },
         },
-        orderBy: { submittedAt: "desc" },
-        select: { id: true, workSummary: true, submittedAt: true }
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          runId: true,
+          leasedAt: true,
+          startedAt: true,
+          updatedAt: true,
+        },
       }),
       this.prisma.reviewResult.findFirst({
         where: {
@@ -294,16 +431,16 @@ export class AgentAvatarService {
       })
     ]);
 
-    // 1. Working — recent submission
-    if (recentSubmission) {
+    // 1. Working — a real connector task is leased or running.
+    if (activeTask) {
+      const activeAt = activeTask.startedAt ?? activeTask.leasedAt ?? activeTask.updatedAt;
       return {
         studentId,
         displayName,
         status: "working",
         currentZone: DEFAULT_ZONE as AvatarZone,
-        lastActiveAt: recentSubmission.submittedAt.toISOString(),
-        activitySummary:
-          recentSubmission.workSummary.slice(0, 60) || "正在提交任务..."
+        lastActiveAt: activeAt.toISOString(),
+        activitySummary: `正在执行本地 Agent 任务 ${activeTask.runId}`,
       };
     }
 
@@ -363,6 +500,33 @@ export class AgentAvatarService {
       currentZone: DEFAULT_ZONE as AvatarZone,
       lastActiveAt: null,
       activitySummary: "空闲"
+    };
+  }
+
+  private withWorldIdentity(
+    state: AvatarState,
+    userId: string,
+    accountRole: UserRole,
+    roleKey?: string | null,
+  ): AvatarState {
+    const currentZone = (this.presence.getZone(userId) ?? state.currentZone) as AvatarZone;
+    if (accountRole === UserRole.teacher) {
+      return {
+        ...state,
+        currentZone,
+        ownerRole: "teacher",
+        agentRole: null,
+        visualRole: "lead",
+      };
+    }
+
+    const visualRole = roleKey ? resolveAgentVisualRole(roleKey) : null;
+    return {
+      ...state,
+      currentZone,
+      ownerRole: "student",
+      agentRole: visualRole ? roleKey ?? null : null,
+      visualRole,
     };
   }
 

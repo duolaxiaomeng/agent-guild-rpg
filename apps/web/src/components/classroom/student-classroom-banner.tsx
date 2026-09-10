@@ -143,7 +143,7 @@ function formatRemaining(value: number | null) {
   return `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toString().padStart(2, "0")}`;
 }
 
-const panelStyle: React.CSSProperties = { position: "relative", zIndex: 20, margin: "10px auto 0", width: "min(920px, calc(100% - 24px))", padding: "14px 16px", borderRadius: 8, border: "1px solid rgba(150,178,221,0.28)", borderTop: "3px solid #64b7ff", background: "linear-gradient(145deg, rgba(13,24,48,0.94), rgba(7,13,28,0.94))", color: "#fff", boxShadow: "0 4px 0 rgba(3,6,14,0.5), 0 14px 28px rgba(0,0,0,0.2)" };
+const panelStyle: React.CSSProperties = { position: "relative", zIndex: 20, margin: "10px auto 0", width: "min(540px, calc(100% - 24px))", padding: "14px 16px", borderRadius: 8, border: "1px solid rgba(150,178,221,0.28)", borderTop: "3px solid #64b7ff", background: "linear-gradient(145deg, rgba(13,24,48,0.94), rgba(7,13,28,0.94))", color: "#fff", boxShadow: "0 4px 0 rgba(3,6,14,0.5), 0 14px 28px rgba(0,0,0,0.2)" };
 const dayBadgeStyle: React.CSSProperties = { display: "inline-flex", marginRight: 9, padding: "3px 6px", border: "1px solid rgba(246,200,95,0.44)", borderRadius: 4, background: "rgba(246,200,95,0.08)", color: "#ffe5a0", fontFamily: "var(--font-pixel)", fontSize: 10, fontWeight: 900 };
 const stageTitleStyle: React.CSSProperties = { color: "#f5f7ff", fontFamily: "var(--font-pixel)", fontSize: 14 };
 const stageDescriptionStyle: React.CSSProperties = { display: "block", marginTop: 5, color: "#8998b5", fontSize: 12 };

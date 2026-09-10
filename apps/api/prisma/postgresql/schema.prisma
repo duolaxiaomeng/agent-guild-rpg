@@ -1,0 +1,717 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  teacher
+  student
+}
+
+enum GuildMembershipRole {
+  leader
+  member
+  visitor
+}
+
+enum MembershipStatus {
+  active
+  invited
+  declined
+  removed
+}
+
+enum RoomType {
+  chat_room
+  workshop
+  archive
+  guild_hall
+}
+
+enum QuestStatus {
+  open
+  locked
+  completed
+}
+
+enum AgentSessionStatus {
+  active
+  completed
+  failed
+}
+
+enum AgentConnectorStatus {
+  online
+  offline
+  revoked
+}
+
+enum SubmissionTriggerType {
+  button
+  chat_command
+  schedule
+}
+
+enum ReviewDecision {
+  approve
+  adjust
+  reject
+}
+
+enum ReviewStatus {
+  queued
+  ai_reviewed
+  needs_teacher
+  teacher_decided
+}
+
+enum AgentTaskStatus {
+  blocked
+  queued
+  leased
+  running
+  completed
+  failed
+  needs_teacher
+  cancelled
+}
+
+enum AgentTaskResourceClass {
+  light
+  heavy
+}
+
+enum AgentTaskAttemptStatus {
+  leased
+  running
+  completed
+  failed
+  expired
+  cancelled
+}
+
+enum ContributionKind {
+  peer_review
+  collaboration
+  build_support
+}
+
+enum ClassroomSessionStatus {
+  draft
+  live
+  completed
+}
+
+enum ClassroomStageStatus {
+  draft
+  running
+  paused
+  completed
+  ended_early
+}
+
+enum ClassroomStaffRole {
+  teacher
+  assistant
+}
+
+enum HelpRequestCategory {
+  blocked
+  environment
+  question
+  review
+  other
+}
+
+enum HelpRequestStatus {
+  open
+  claimed
+  resolved
+  cancelled
+}
+
+enum ClassroomEventType {
+  session_started
+  stage_started
+  stage_paused
+  stage_extended
+  stage_completed
+  stage_ended_early
+  stage_unlocked
+  help_created
+  help_claimed
+  help_resolved
+  help_cancelled
+}
+
+model User {
+  id                            String                     @id @default(uuid())
+  role                          UserRole
+  email                         String                     @unique
+  passwordHash                  String
+  displayName                   String
+  isOnline                      Boolean                    @default(true)
+  createdAt                     DateTime                   @default(now())
+  cohortId                      String?
+  cohort                        StudentCohort?             @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  homestead                     Homestead?
+  memberships                   GuildMembership[]
+  guildInvitationsSent          GuildMembership[]          @relation("GuildMembershipInviter")
+  ownedGuilds                   Guild[]                    @relation("GuildOwner")
+  agentSessions                 AgentSession[]
+  agentPairings                 AgentPairing[]
+  agentConnectors               AgentConnector[]
+  agentEvents                   AgentEvent[]
+  sessions                      UserSession[]
+  submissions                   AgentSubmission[]
+  reviewDecisions               ReviewResult[]             @relation("ReviewReviewer")
+  contributionLogs              ContributionLog[]          @relation("ContributionActor")
+  contributionsReceived         ContributionLog[]          @relation("ContributionTarget")
+  chatMessages                  ChatMessage[]
+  agentMemories                 AgentMemory[]
+  classroomSessionsTaught       ClassroomSession[]         @relation("ClassroomSessionTeacher")
+  classroomStaffAssignments     ClassroomStaffAssignment[]
+  classroomHelpRequestsCreated  HelpRequest[]              @relation("ClassroomHelpStudent")
+  classroomHelpRequestsAssigned HelpRequest[]              @relation("ClassroomHelpAssignee")
+  classroomEvents               ClassroomEvent[]           @relation("ClassroomEventActor")
+  questDaysPublished            QuestDay[]                 @relation("QuestDayTeacher")
+  websiteLotteryOptionsCreated  WebsiteLotteryOption[]     @relation("WebsiteLotteryOptionTeacher")
+  websiteLotteryDraws           WebsiteLotteryDraw[]
+  agentTasks                    AgentTask[]
+  agentTeamBinding              AgentTeamBinding?
+  agentWorldState               AgentWorldState?
+
+  @@index([cohortId, role])
+}
+
+model StudentCohort {
+  id        String   @id
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  students  User[]
+}
+
+model CourseWorld {
+  id                String             @id @default(uuid())
+  name              String
+  currentDay        Int
+  isUnlocked        Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  quests            QuestDay[]
+  submissions       AgentSubmission[]
+  classroomSessions ClassroomSession[]
+  agentTasks        AgentTask[]
+}
+
+model Homestead {
+  id      String @id @default(uuid())
+  ownerId String @unique
+  title   String
+  owner   User   @relation(fields: [ownerId], references: [id])
+  rooms   Room[]
+}
+
+model Guild {
+  id                  String            @id @default(uuid())
+  name                String            @unique
+  description         String
+  ownerId             String
+  collaborationPoints Int               @default(0)
+  owner               User              @relation("GuildOwner", fields: [ownerId], references: [id])
+  memberships         GuildMembership[]
+  agentTasks          AgentTask[]
+}
+
+model GuildMembership {
+  id          String              @id @default(uuid())
+  guildId     String
+  userId      String
+  role        GuildMembershipRole
+  status      MembershipStatus
+  invitedById String?
+  invitedAt   DateTime?
+  respondedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  guild       Guild               @relation(fields: [guildId], references: [id])
+  user        User                @relation(fields: [userId], references: [id])
+  invitedBy   User?               @relation("GuildMembershipInviter", fields: [invitedById], references: [id])
+
+  @@unique([guildId, userId])
+  @@index([userId, status])
+  @@index([invitedById, status, invitedAt])
+}
+
+model Room {
+  id          String     @id @default(uuid())
+  homesteadId String?
+  type        RoomType
+  name        String
+  homestead   Homestead? @relation(fields: [homesteadId], references: [id])
+}
+
+model RoomAccessGrant {
+  id        String   @id @default(cuid())
+  roomId    String
+  granteeId String
+  scope     String
+  status    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([granteeId, status, expiresAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([roomId, createdAt])
+}
+
+model QuestDay {
+  id                    String                 @id
+  courseWorldId         String
+  title                 String
+  status                QuestStatus
+  description           String                 @default("")
+  homework              String                 @default("")
+  acceptanceCriteria    Json                   @default("[]")
+  dueAt                 DateTime?
+  publishedAt           DateTime?
+  teacherId             String?
+  courseWorld           CourseWorld            @relation(fields: [courseWorldId], references: [id])
+  teacher               User?                  @relation("QuestDayTeacher", fields: [teacherId], references: [id])
+  submissions           AgentSubmission[]
+  agentEvents           AgentEvent[]
+  classroomSessions     ClassroomSession[]
+  websiteLotteryOptions WebsiteLotteryOption[]
+  websiteLotteryDraws   WebsiteLotteryDraw[]
+  agentTasks            AgentTask[]
+
+  @@index([courseWorldId, publishedAt])
+  @@index([teacherId, publishedAt])
+}
+
+model WebsiteLotteryOption {
+  id          String               @id @default(cuid())
+  dayId       String
+  label       String
+  description String               @default("")
+  isActive    Boolean              @default(true)
+  sortOrder   Int                  @default(0)
+  createdById String
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  day         QuestDay             @relation(fields: [dayId], references: [id])
+  createdBy   User                 @relation("WebsiteLotteryOptionTeacher", fields: [createdById], references: [id])
+  draws       WebsiteLotteryDraw[]
+
+  @@index([dayId, isActive, sortOrder])
+}
+
+model WebsiteLotteryDraw {
+  id        String               @id @default(cuid())
+  dayId     String
+  studentId String
+  optionId  String
+  drawnAt   DateTime             @default(now())
+  day       QuestDay             @relation(fields: [dayId], references: [id])
+  student   User                 @relation(fields: [studentId], references: [id])
+  option    WebsiteLotteryOption @relation(fields: [optionId], references: [id])
+
+  @@unique([dayId, studentId])
+  @@unique([dayId, optionId])
+  @@index([optionId, drawnAt])
+}
+
+model AgentSession {
+  id          String             @id @default(uuid())
+  studentId   String
+  provider    String
+  status      AgentSessionStatus
+  createdAt   DateTime           @default(now())
+  student     User               @relation(fields: [studentId], references: [id])
+  submissions AgentSubmission[]
+  connector   AgentConnector?
+
+  @@index([studentId, status, createdAt])
+}
+
+model AgentTeamBinding {
+  id        String   @id @default(cuid())
+  studentId String   @unique
+  roleKey   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([roleKey, updatedAt])
+}
+
+model AgentWorldState {
+  id          String   @id @default(cuid())
+  studentId   String   @unique
+  currentZone String   @default("workstations")
+  positionX   Float
+  positionY   Float
+  facing      String   @default("down")
+  revision    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([currentZone, updatedAt])
+}
+
+model AgentPairing {
+  id        String    @id @default(uuid())
+  studentId String
+  codeHash  String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  student   User      @relation(fields: [studentId], references: [id])
+
+  @@index([studentId, createdAt])
+  @@index([expiresAt, usedAt])
+}
+
+model AgentConnector {
+  id             String               @id @default(uuid())
+  studentId      String
+  agentSessionId String               @unique
+  provider       String
+  clientName     String
+  tokenHash      String               @unique
+  status         AgentConnectorStatus @default(offline)
+  capabilities   Json
+  connectedAt    DateTime             @default(now())
+  lastSeenAt     DateTime             @default(now())
+  revokedAt      DateTime?
+  createdAt      DateTime             @default(now())
+  student        User                 @relation(fields: [studentId], references: [id])
+  agentSession   AgentSession         @relation(fields: [agentSessionId], references: [id])
+  events         AgentEvent[]
+  claimedTasks   AgentTask[]          @relation("AgentTaskLeaseOwner")
+  taskAttempts   AgentTaskAttempt[]
+
+  @@index([studentId, status, lastSeenAt])
+}
+
+model AgentEvent {
+  id          String         @id @default(cuid())
+  eventId     String         @unique @default(cuid())
+  connectorId String
+  studentId   String
+  dayId       String
+  type        String
+  payload     Json
+  occurredAt  DateTime
+  createdAt   DateTime       @default(now())
+  connector   AgentConnector @relation(fields: [connectorId], references: [id])
+  student     User           @relation(fields: [studentId], references: [id])
+  day         QuestDay       @relation(fields: [dayId], references: [id])
+
+  @@index([studentId, dayId, occurredAt])
+  @@index([connectorId, createdAt])
+  @@index([connectorId, occurredAt, id])
+}
+
+model AgentSubmission {
+  id                   String                @id @default(uuid())
+  clientRequestId      String                @default(cuid())
+  pendingReviewKey     String?               @unique
+  studentId            String
+  courseWorldId        String
+  dayId                String
+  agentSessionId       String
+  triggerType          SubmissionTriggerType
+  conversationSummary  String
+  workSummary          String
+  artifacts            Json
+  selfReflection       String
+  agentEvaluationHints Json
+  submittedAt          DateTime
+  createdAt            DateTime              @default(now())
+  student              User                  @relation(fields: [studentId], references: [id])
+  courseWorld          CourseWorld           @relation(fields: [courseWorldId], references: [id])
+  day                  QuestDay              @relation(fields: [dayId], references: [id])
+  agentSession         AgentSession          @relation(fields: [agentSessionId], references: [id])
+  reviewResult         ReviewResult?
+
+  @@unique([studentId, clientRequestId])
+  @@index([studentId, dayId, submittedAt])
+  @@index([courseWorldId, dayId, submittedAt])
+}
+
+model ReviewResult {
+  id             String          @id @default(uuid())
+  submissionId   String          @unique
+  status         ReviewStatus    @default(queued)
+  reviewerId     String?
+  suggestedScore Int?
+  finalScore     Int?
+  decision       ReviewDecision?
+  rationale      String?
+  aiReviewedAt   DateTime?
+  decidedAt      DateTime?
+  createdAt      DateTime        @default(now())
+  submission     AgentSubmission @relation(fields: [submissionId], references: [id])
+  reviewer       User?           @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([status, decidedAt])
+}
+
+model ContributionLog {
+  id           String           @id @default(uuid())
+  actorId      String
+  targetUserId String
+  kind         ContributionKind
+  points       Int
+  createdAt    DateTime         @default(now())
+  actor        User             @relation("ContributionActor", fields: [actorId], references: [id])
+  targetUser   User             @relation("ContributionTarget", fields: [targetUserId], references: [id])
+}
+
+model AgentMemory {
+  id             String   @id @default(cuid())
+  studentId      String
+  courseWorldId  String?
+  roomId         String?
+  agentSessionId String?
+  taskId         String?
+  type           String
+  content        String
+  embedding      String?
+  importance     Float    @default(1.0)
+  sourceType     String   @default("student")
+  createdAt      DateTime @default(now())
+  lastAccessedAt DateTime @default(now())
+
+  student User @relation(fields: [studentId], references: [id])
+
+  @@index([studentId, type])
+  @@index([studentId, createdAt])
+  @@index([studentId, courseWorldId])
+  @@index([studentId, roomId])
+  @@index([studentId, agentSessionId])
+  @@index([studentId, taskId])
+}
+
+model AgentRunSnapshot {
+  runId          String   @id
+  status         String
+  input          Json?
+  dependencies   Json
+  result         Json?
+  error          String?
+  previousStatus String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+model AgentTask {
+  id                   String                 @id @default(cuid())
+  runId                String                 @unique
+  courseWorldId        String?
+  dayId                String?
+  guildId              String?
+  studentId            String
+  provider             String
+  requiredCapabilities Json                   @default("[]")
+  priority             Int                    @default(0)
+  resourceClass        AgentTaskResourceClass @default(heavy)
+  status               AgentTaskStatus        @default(blocked)
+  payload              Json
+  blockedByCount       Int                    @default(0)
+  maxAttempts          Int                    @default(3)
+  attemptCount         Int                    @default(0)
+  availableAt          DateTime               @default(now())
+  leaseOwnerId         String?
+  heavyLeaseKey        String?                @unique
+  leaseTokenHash       String?                @unique
+  leasedAt             DateTime?
+  leaseExpiresAt       DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  failedAt             DateTime?
+  failureReason        String?
+  result               Json?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  courseWorld          CourseWorld?           @relation(fields: [courseWorldId], references: [id])
+  day                  QuestDay?              @relation(fields: [dayId], references: [id])
+  guild                Guild?                 @relation(fields: [guildId], references: [id])
+  student              User                   @relation(fields: [studentId], references: [id])
+  leaseOwner           AgentConnector?        @relation("AgentTaskLeaseOwner", fields: [leaseOwnerId], references: [id])
+  dependencies         AgentTaskDependency[]  @relation("AgentTaskDependencies")
+  dependents           AgentTaskDependency[]  @relation("AgentTaskDependents")
+  attempts             AgentTaskAttempt[]
+
+  @@index([status, resourceClass, availableAt, priority])
+  @@index([studentId, status, resourceClass])
+  @@index([courseWorldId, dayId, status])
+  @@index([guildId, status, createdAt])
+  @@index([runId, status])
+  @@index([leaseOwnerId, leaseExpiresAt])
+}
+
+model AgentTaskDependency {
+  id               String    @id @default(cuid())
+  taskId           String
+  dependencyTaskId String
+  createdAt        DateTime  @default(now())
+  task             AgentTask @relation("AgentTaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependencyTask   AgentTask @relation("AgentTaskDependents", fields: [dependencyTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependencyTaskId])
+  @@index([dependencyTaskId, taskId])
+}
+
+model AgentTaskAttempt {
+  id             String                 @id @default(cuid())
+  taskId         String
+  connectorId    String?
+  attemptNumber  Int
+  status         AgentTaskAttemptStatus @default(leased)
+  leaseTokenHash String                 @unique
+  leasedAt       DateTime               @default(now())
+  leaseExpiresAt DateTime
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  errorKind      String?
+  errorMessage   String?
+  result         Json?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  task           AgentTask              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  connector      AgentConnector?        @relation(fields: [connectorId], references: [id])
+
+  @@unique([taskId, attemptNumber])
+  @@index([taskId, status])
+  @@index([connectorId, status, leaseExpiresAt])
+  @@index([status, leaseExpiresAt])
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+model ClassroomSession {
+  id               String                     @id @default(cuid())
+  courseWorldId    String
+  dayId            String
+  teacherId        String
+  status           ClassroomSessionStatus     @default(draft)
+  currentStageId   String?
+  startedAt        DateTime?
+  endedAt          DateTime?
+  version          Int                        @default(0)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  courseWorld      CourseWorld                @relation(fields: [courseWorldId], references: [id])
+  day              QuestDay                   @relation(fields: [dayId], references: [id])
+  teacher          User                       @relation("ClassroomSessionTeacher", fields: [teacherId], references: [id])
+  stages           ClassroomStage[]
+  staffAssignments ClassroomStaffAssignment[]
+  helpRequests     HelpRequest[]
+  events           ClassroomEvent[]
+
+  @@index([courseWorldId, status])
+  @@index([teacherId, status])
+}
+
+model ClassroomStage {
+  id                      String               @id @default(cuid())
+  sessionId               String
+  title                   String
+  description             String
+  sortOrder               Int
+  durationSeconds         Int
+  extensionSeconds        Int                  @default(0)
+  startedAt               DateTime?
+  pausedAt                DateTime?
+  accumulatedPauseSeconds Int                  @default(0)
+  status                  ClassroomStageStatus @default(draft)
+  version                 Int                  @default(0)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  session                 ClassroomSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, sortOrder])
+  @@index([sessionId, sortOrder])
+  @@index([sessionId, status])
+}
+
+model ClassroomStaffAssignment {
+  id        String             @id @default(cuid())
+  sessionId String
+  userId    String
+  role      ClassroomStaffRole
+  createdAt DateTime           @default(now())
+  session   ClassroomSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id])
+
+  @@unique([sessionId, userId])
+  @@unique([sessionId, role])
+  @@index([sessionId, role])
+}
+
+model HelpRequest {
+  id             String              @id @default(cuid())
+  sessionId      String
+  studentId      String
+  category       HelpRequestCategory
+  message        String
+  status         HelpRequestStatus   @default(open)
+  assigneeId     String?
+  resolutionNote String?
+  createdAt      DateTime            @default(now())
+  claimedAt      DateTime?
+  resolvedAt     DateTime?
+  version        Int                 @default(0)
+  session        ClassroomSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student        User                @relation("ClassroomHelpStudent", fields: [studentId], references: [id])
+  assignee       User?               @relation("ClassroomHelpAssignee", fields: [assigneeId], references: [id])
+
+  @@index([sessionId, status, createdAt])
+  @@index([studentId, createdAt])
+}
+
+model ClassroomEvent {
+  id        String             @id @default(cuid())
+  sessionId String
+  actorId   String
+  eventType ClassroomEventType
+  targetId  String?
+  payload   Json
+  createdAt DateTime           @default(now())
+  session   ClassroomSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  actor     User               @relation("ClassroomEventActor", fields: [actorId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([sessionId, eventType, createdAt])
+}

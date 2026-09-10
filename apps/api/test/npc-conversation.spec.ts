@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedDatabase } from "../prisma/seed";
 import { AppModule } from "../src/app.module";
+import { NPC_PERSONAS } from "../src/modules/memory/npc-personas";
 import { ReviewQueueService } from "../src/modules/queue/review.queue";
 import { prepareTestDatabase } from "./support/test-database";
 
@@ -154,6 +155,16 @@ describe("npc conversation", () => {
     expect(response.status).toBe(200);
     expect(response.body.degraded).toBe(false);
     expect(response.body.reply).toContain("评审标准");
+    expect(vi.mocked(chat)).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "不要编造学生进度、任务状态、评分、权限或实时 Agent 状态",
+          ),
+        }),
+      ]),
+    );
   });
 
   it("falls back to static reply when LLM call throws", async () => {
@@ -221,5 +232,16 @@ describe("npc conversation", () => {
       expect(response.body.npcName.length).toBeGreaterThan(0);
       expect(response.body.reply.length).toBeGreaterThan(0);
     }
+
+    expect(NPC_PERSONAS["walker-a"]).toMatchObject({
+      name: "巡场同事",
+      role: expect.stringContaining("巡场工作人员"),
+      fallbackReply: expect.stringContaining("评分、权限和个人进度请找老师或查看系统"),
+    });
+    expect(NPC_PERSONAS["walker-b"]).toMatchObject({
+      name: "访客",
+      role: expect.stringContaining("不是工作人员"),
+      fallbackReply: expect.stringContaining("看不到内部任务、成绩或权限"),
+    });
   });
 });

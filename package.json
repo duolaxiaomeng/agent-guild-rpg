@@ -5,6 +5,7 @@
   "scripts": {
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter api start:dev",
+    "dev:worker": "pnpm --filter api start:worker:dev",
     "db:reset": "./scripts/reset-dev-db.sh",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter web test:e2e",
@@ -13,8 +14,11 @@
     "docker:build": "docker compose --env-file .env.docker build",
     "docker:up": "docker compose --env-file .env.docker up -d",
     "docker:down": "docker compose --env-file .env.docker down",
-    "docker:logs": "docker compose --env-file .env.docker logs -f api web",
-    "docker:seed": "docker compose --env-file .env.docker --profile tools run --rm seed"
+    "docker:logs": "docker compose --env-file .env.docker logs -f api review-worker web postgres redis",
+    "docker:seed": "docker compose --env-file .env.docker --profile tools run --rm seed",
+    "test:capacity:40": "node scripts/capacity/forty-submissions.mjs",
+    "test:capacity:120": "node scripts/capacity/one-hundred-twenty-connectors.mjs",
+    "test:capacity:prepare": "node scripts/capacity/prepare-fixtures.mjs"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

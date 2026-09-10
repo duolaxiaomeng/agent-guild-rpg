@@ -238,7 +238,12 @@ function ActorProfile({
         <div className="teacher-observer-sections">
           <ObserverRow label="当前区域" value={zoneLabel} />
           <ObserverRow label="当前任务" value={task} />
-          <ObserverRow label="最近心跳" value={avatar ? new Date(avatar.lastActiveAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "场景实时"} />
+          <ObserverRow
+            label="最近心跳"
+            value={avatar?.lastActiveAt
+              ? new Date(avatar.lastActiveAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+              : "场景实时"}
+          />
           <ObserverRow label="教师权限" value="仅查看" />
         </div>
         <Link className="teacher-observer-action" href={found.kind === "agent" ? "/teacher" : "/chat"}>

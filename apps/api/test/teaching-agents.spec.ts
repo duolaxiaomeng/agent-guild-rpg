@@ -1,6 +1,6 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { PrismaClient } from "@prisma/client";
+import { AgentConnectorStatus, PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedDatabase } from "../prisma/seed";
@@ -46,6 +46,24 @@ describe("teaching agents", () => {
 
   beforeAll(async () => {
     prisma = await prepareTestDatabase("teaching-agents");
+    await prisma.agentConnector.upsert({
+      where: { agentSessionId: "session-1" },
+      create: {
+        id: "connector-teaching-agents",
+        studentId: "student-1",
+        agentSessionId: "session-1",
+        provider: "claude-code",
+        clientName: "teaching-agents-test",
+        tokenHash: "teaching-agents-test-token",
+        status: AgentConnectorStatus.online,
+        capabilities: [],
+        lastSeenAt: new Date(),
+      },
+      update: {
+        status: AgentConnectorStatus.online,
+        lastSeenAt: new Date(),
+      },
+    });
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -243,6 +261,7 @@ describe("teaching agents", () => {
         .post("/submissions")
         .set("Authorization", `Bearer ${token}`)
         .send({
+          clientRequestId: `teaching-agents-${Date.now()}`,
           studentId: "student-1",
           courseWorldId: "course-world-1",
           dayId: "day-1",

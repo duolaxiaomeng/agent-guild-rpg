@@ -70,12 +70,27 @@ describe("auth flow", () => {
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({
       token: expect.stringMatching(/^session_/),
-      user: { role: "student", displayName: "新同学" }
+      user: {
+        role: "student",
+        displayName: "新同学",
+        cohort: {
+          id: "cohort-chuangshuo-agent-1",
+          name: "船说agent第一期班"
+        }
+      }
     });
 
     const user = await prisma.user.findUnique({
       where: { email: "new@academy.test" },
-      include: { homestead: { include: { rooms: true } } }
+      include: {
+        cohort: true,
+        homestead: { include: { rooms: true } }
+      }
+    });
+    expect(user?.cohort).toMatchObject({
+      id: "cohort-chuangshuo-agent-1",
+      name: "船说agent第一期班",
+      isActive: true
     });
     expect(user?.homestead?.rooms).toEqual([
       expect.objectContaining({

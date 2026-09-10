@@ -1,5 +1,19 @@
-const PUBLIC_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+function resolvePublicApiBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (typeof window === "undefined") {
+    return configured ?? "http://localhost:3001";
+  }
+
+  const browserHost = window.location.hostname;
+  const configuredIsLocalhost = !configured || /:\/\/(localhost|127\.0\.0\.1)(?::\d+)?$/i.test(configured);
+  if (configuredIsLocalhost && !["localhost", "127.0.0.1"].includes(browserHost)) {
+    return `${window.location.protocol}//${browserHost}:3001`;
+  }
+
+  return configured ?? `${window.location.protocol}//${browserHost}:3001`;
+}
+
+const PUBLIC_API_BASE_URL = resolvePublicApiBaseUrl();
 const API_BASE_URL = typeof window === "undefined"
   ? process.env.API_INTERNAL_BASE_URL ?? PUBLIC_API_BASE_URL
   : PUBLIC_API_BASE_URL;
@@ -14,6 +28,10 @@ export type AuthUser = {
   id: string;
   role: "teacher" | "student";
   displayName: string;
+  cohort?: {
+    id: string;
+    name: string;
+  } | null;
 };
 
 export type AuthSession = {
@@ -45,8 +63,36 @@ export type WorldPayload = {
 export type GuildSummary = {
   id: string;
   name: string;
+  description?: string;
   memberCount: number;
   collaborationPoints: number;
+  viewerMembership?: {
+    id: string;
+    userId: string;
+    role: "leader" | "member" | "visitor";
+    status: "active";
+  } | null;
+};
+
+export type GuildMember = {
+  id: string;
+  guildId: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  role: "leader" | "member" | "visitor";
+  status: "active";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GuildMemberRemoval = {
+  id: string;
+  guildId: string;
+  userId: string;
+  role: "leader" | "member" | "visitor";
+  status: "removed";
+  removedAt: string;
 };
 
 export type QuestSummary = {
@@ -82,6 +128,7 @@ export type WebsiteLotteryDraw = {
 
 export type WebsiteLotteryPayload = {
   dayId: string;
+  agentOnline: boolean;
   options: WebsiteLotteryOption[];
   draw: WebsiteLotteryDraw | null;
 };
@@ -105,7 +152,7 @@ export type ReviewQueueItem = {
   submissionId: string;
   studentName: string;
   guildName: string;
-  reviewStatus: "queued" | "ai_reviewed" | "teacher_decided";
+  reviewStatus: "queued" | "ai_reviewed" | "needs_teacher" | "teacher_decided";
   suggestedScore: number | null;
   finalScore: number | null;
   decision: "approve" | "adjust" | "reject" | null;
@@ -118,30 +165,51 @@ export type ReviewQueueItem = {
 export type ReviewQueuePayload = {
   summary: ReviewQueueSummary;
   items: ReviewQueueItem[];
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
 };
 
-export type CreateSubmissionPayload = {
-  studentId: string;
-  courseWorldId: string;
-  dayId: string;
-  agentSessionId: string;
-  triggerType: "button" | "chat_command" | "schedule";
-  conversationSummary: string;
-  workSummary: string;
-  artifacts: Array<{
-    kind: string;
-    label: string;
-    url: string;
-  }>;
-  selfReflection: string;
-  agentEvaluationHints: string[];
-  timestamp: string;
-};
+export type CreateSubmissionPayload = AgentSubmission;
 
 export type CreateSubmissionResponse = {
   submission: {
     id: string;
   };
+  queue: {
+    jobId: string;
+    status: "queued" | "waiting_for_queue";
+  };
+};
+
+export type SubmissionDetail = {
+  submission: CreateSubmissionPayload & {
+    id: string;
+    studentName: string;
+    dayTitle: string;
+    agentProvider: string;
+    agentSessionStatus: "active" | "completed" | "failed";
+  };
+  review: {
+    submissionId: string;
+    status: "queued" | "ai_reviewed" | "needs_teacher" | "teacher_decided";
+    suggestedScore: number | null;
+    finalScore: number | null;
+    decision: "approve" | "adjust" | "reject" | null;
+    rationale: string;
+    riskFlags: string[];
+    reviewerName: string | null;
+    aiReviewedAt: string | null;
+    decidedAt: string | null;
+  } | null;
+  agentEvents: Array<{
+    eventId: string;
+    type: string;
+    payload: unknown;
+    occurredAt: string;
+  }>;
 };
 
 export type DecideReviewPayload = {
@@ -155,6 +223,8 @@ export type DecideReviewResponse = DecideReviewPayload;
 export type ChatOverviewPayload = {
   studentId: string;
   studentName: string;
+  agentSessionId: string | null;
+  canSubmit: boolean;
   agentLabel: string;
   sessionStatus: "active" | "completed" | "failed";
   sessionSummary: string;
@@ -218,13 +288,28 @@ export type CreateChatMessagePayload = {
   body: string;
 };
 
+export type AgentZone = "lobby" | "workstations" | "collab-room" | "review-station";
+
 export type AgentAvatar = {
   studentId: string;
   displayName: string;
   status: "online" | "working" | "reviewing" | "idle" | "offline";
-  currentZone: "lobby" | "workstations" | "collab-room" | "review-station";
-  lastActiveAt: string;
+  currentZone: AgentZone;
+  lastActiveAt: string | null;
   activitySummary: string;
+  ownerRole?: "teacher" | "student";
+  agentRole?: string | null;
+  visualRole?: "browser" | "coder" | "files" | "ops" | "lead" | null;
+  position?: {
+    zone: "workstations";
+    x: number;
+    y: number;
+    facing: "left" | "right" | "up" | "down";
+    revision: number;
+    updatedAt: string;
+  };
+  movementLocked?: boolean;
+  movementLockReason?: "task_running" | "reviewing" | null;
 };
 
 export type AgentConnectorProfile = {
@@ -234,6 +319,8 @@ export type AgentConnectorProfile = {
   clientName: string;
   status: "online" | "offline" | "revoked";
   capabilities: string[];
+  roleKey: string | null;
+  visualRole: "browser" | "coder" | "files" | "ops" | "lead" | null;
   connectedAt: string;
   lastSeenAt: string;
 };
@@ -262,10 +349,27 @@ export type AgentTeamRole = {
   defaultModel: string;
   adapter: string;
   parallelResponsibilities: string[];
+  visualRole: "browser" | "coder" | "files" | "ops" | "lead";
 };
 
 export type AgentTeamCatalog = {
   roles: AgentTeamRole[];
+};
+
+export type AgentTeamBinding = {
+  studentId: string;
+  roleKey: string;
+  visualRole: "browser" | "coder" | "files" | "ops" | "lead";
+  updatedAt: string;
+};
+
+export type AgentTeamBindingPayload = {
+  binding: AgentTeamBinding | null;
+};
+
+export type AgentTeamRosterMember = AgentAvatar & {
+  agentRole: string;
+  visualRole: "browser" | "coder" | "files" | "ops" | "lead";
 };
 
 const EMPTY_AGENT_AVATARS: AgentAvatar[] = [];
@@ -281,6 +385,7 @@ const EMPTY_GUILD_LIST: GuildSummary[] = [];
 const EMPTY_QUEST_LIST: QuestSummary[] = [];
 const EMPTY_WEBSITE_LOTTERY = (dayId: string): WebsiteLotteryPayload => ({
   dayId,
+  agentOnline: false,
   options: [],
   draw: null
 });
@@ -295,12 +400,15 @@ const EMPTY_REVIEW_QUEUE: ReviewQueuePayload = {
     reviewedToday: 0,
     flaggedCount: 0
   },
-  items: []
+  items: [],
+  pagination: { page: 1, pageSize: 50, total: 0 }
 };
 
 const EMPTY_CHAT_OVERVIEW = (studentId: string): ChatOverviewPayload => ({
   studentId,
   studentName: "当前学生",
+  agentSessionId: null,
+  canSubmit: false,
   agentLabel: "Agent 暂不可用",
   sessionStatus: "failed",
   sessionSummary: "实时教学 API 暂不可达，当前展示安全空态。",
@@ -316,7 +424,14 @@ const EMPTY_CHAT_ROOM = (roomId: string): ChatRoomPayload => ({
 });
 
 import type {
+  AgentAssignmentRun,
+  AgentSubmission,
   ClassroomSnapshot,
+  ConfirmAgentAssignment,
+  CreateAgentAssignment,
+  CreateGuild,
+  CreateGuildInvitation,
+  GuildInvitation,
   HelpRequest,
   CreateHelpRequestInput,
   CreateTeacherTaskInput,
@@ -325,6 +440,12 @@ import type {
 } from "contracts";
 
 export type {
+  AgentAssignmentRun,
+  ConfirmAgentAssignment,
+  CreateAgentAssignment,
+  CreateGuild,
+  CreateGuildInvitation,
+  GuildInvitation,
   CreateTeacherTaskInput,
   TeacherTask,
   TeacherTaskProgressPayload
@@ -408,6 +529,27 @@ async function fetchJsonWithHeaders<T>(
   }
 }
 
+async function fetchSameOriginJson<T>(path: string): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(path, {
+      cache: "no-store",
+      credentials: "include",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${path}: ${response.status}`);
+    }
+
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function postJson<TResponse, TBody>(
   path: string,
   body: TBody,
@@ -440,7 +582,7 @@ async function postJson<TResponse, TBody>(
 
 async function writeJson<TResponse>(
   path: string,
-  method: "PATCH" | "DELETE",
+  method: "PUT" | "PATCH" | "DELETE",
   token: string,
   body?: unknown
 ) {
@@ -588,16 +730,172 @@ export async function getAgentTeamCatalogSafe(token: string) {
   );
 }
 
+export async function getAgentTeamBinding(token: string) {
+  return fetchJsonWithHeaders<AgentTeamBindingPayload>(
+    "/agent-team/me",
+    toAuthHeaders(token) ?? {},
+  );
+}
+
+export async function getAgentTeamBindingSafe(token: string) {
+  return fetchJsonSafe<AgentTeamBindingPayload>("/agent-team/me", { binding: null }, token);
+}
+
+export async function setAgentTeamBinding(roleKey: string, token: string) {
+  return writeJson<AgentTeamBinding>(
+    "/agent-team/me",
+    "PUT",
+    token,
+    { roleKey },
+  );
+}
+
+export async function clearAgentTeamBinding(token: string) {
+  return writeJson<{ cleared: boolean }>("/agent-team/me", "DELETE", token);
+}
+
+export async function getAgentTeamRosterSafe(token: string) {
+  return fetchJsonSafe<AgentTeamRosterMember[]>("/agent-team/roster", [], token);
+}
+
+export async function getAgentAssignments(token: string) {
+  return fetchJsonWithHeaders<AgentAssignmentRun[]>(
+    "/agent-orchestration/runs",
+    toAuthHeaders(token) ?? {},
+  );
+}
+
+export async function getAgentAssignmentsSafe(token: string) {
+  return fetchJsonSafe<AgentAssignmentRun[]>(
+    "/agent-orchestration/runs",
+    [],
+    token,
+  );
+}
+
+export async function getMyAgentAssignments(token: string) {
+  return fetchJsonWithHeaders<AgentAssignmentRun[]>(
+    "/agent-orchestration/my-runs",
+    toAuthHeaders(token) ?? {},
+  );
+}
+
+export async function getMyAgentAssignmentsSafe(token: string) {
+  return fetchJsonSafe<AgentAssignmentRun[]>(
+    "/agent-orchestration/my-runs",
+    [],
+    token,
+  );
+}
+
+export async function createAgentAssignment(
+  payload: CreateAgentAssignment,
+  token: string,
+) {
+  return postJson<AgentAssignmentRun, CreateAgentAssignment>(
+    "/agent-orchestration/runs",
+    payload,
+    toAuthHeaders(token),
+  );
+}
+
+export async function confirmAgentAssignment(
+  payload: ConfirmAgentAssignment,
+  token: string,
+) {
+  return postJson<CreateSubmissionResponse, ConfirmAgentAssignment>(
+    "/submissions/from-agent-task",
+    payload,
+    toAuthHeaders(token),
+  );
+}
+
 export async function getWorldPayloadSafe(token?: string) {
   return fetchJsonSafe("/world", EMPTY_WORLD_PAYLOAD, token);
 }
 
-export async function getGuildList() {
-  return fetchJson<GuildSummary[]>("/guilds");
+export async function getGuildList(token?: string) {
+  return token
+    ? fetchJsonWithHeaders<GuildSummary[]>("/guilds", toAuthHeaders(token) ?? {})
+    : fetchJson<GuildSummary[]>("/guilds");
 }
 
 export async function getGuildListSafe(token?: string) {
   return fetchJsonSafe("/guilds", EMPTY_GUILD_LIST, token);
+}
+
+export async function createGuild(payload: CreateGuild, token: string) {
+  return postJson<GuildSummary, CreateGuild>(
+    "/guilds",
+    payload,
+    toAuthHeaders(token)
+  );
+}
+
+export async function getMyGuildInvitations(token: string) {
+  return fetchJsonWithHeaders<GuildInvitation[]>(
+    "/guilds/invitations/me",
+    toAuthHeaders(token) ?? {}
+  );
+}
+
+export async function getMyGuildInvitationsSafe(token: string) {
+  return fetchJsonSafe<GuildInvitation[]>("/guilds/invitations/me", [], token);
+}
+
+export async function inviteGuildMember(
+  guildId: string,
+  payload: CreateGuildInvitation,
+  token: string
+) {
+  return postJson<GuildInvitation, CreateGuildInvitation>(
+    `/guilds/${encodeURIComponent(guildId)}/invitations`,
+    payload,
+    toAuthHeaders(token)
+  );
+}
+
+export async function acceptGuildInvitation(invitationId: string, token: string) {
+  return postJson<GuildInvitation, Record<string, never>>(
+    `/guilds/invitations/${encodeURIComponent(invitationId)}/accept`,
+    {},
+    toAuthHeaders(token)
+  );
+}
+
+export async function declineGuildInvitation(invitationId: string, token: string) {
+  return postJson<GuildInvitation, Record<string, never>>(
+    `/guilds/invitations/${encodeURIComponent(invitationId)}/decline`,
+    {},
+    toAuthHeaders(token)
+  );
+}
+
+export async function getGuildMembers(guildId: string, token: string) {
+  return fetchJsonWithHeaders<GuildMember[]>(
+    `/guilds/${encodeURIComponent(guildId)}/members`,
+    toAuthHeaders(token) ?? {}
+  );
+}
+
+export async function getGuildMembersSafe(guildId: string, token: string) {
+  return fetchJsonSafe<GuildMember[]>(
+    `/guilds/${encodeURIComponent(guildId)}/members`,
+    [],
+    token
+  );
+}
+
+export async function removeGuildMember(
+  guildId: string,
+  userId: string,
+  token: string
+) {
+  return postJson<GuildMemberRemoval, Record<string, never>>(
+    `/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(userId)}/remove`,
+    {},
+    toAuthHeaders(token)
+  );
 }
 
 export async function getQuestList(token?: string) {
@@ -662,6 +960,14 @@ export async function drawWebsiteLottery(dayId: string, token: string) {
   );
 }
 
+export async function redrawWebsiteLottery(dayId: string, token: string) {
+  return postJson<{ alreadyDrawn: boolean; draw: WebsiteLotteryDraw }, Record<string, never>>(
+    `/website-lottery/days/${encodeURIComponent(dayId)}/redraw`,
+    {},
+    toAuthHeaders(token)
+  );
+}
+
 export async function createWebsiteLotteryOption(
   dayId: string,
   payload: WebsiteLotteryOptionInput,
@@ -696,14 +1002,19 @@ export async function deleteWebsiteLotteryOption(dayId: string, optionId: string
   );
 }
 
-export async function getReviewQueue(token?: string) {
+export async function getReviewQueue(token?: string, page = 1, pageSize = 50) {
+  const path = `/reviews?page=${page}&pageSize=${pageSize}`;
   return token
-    ? fetchJsonWithHeaders<ReviewQueuePayload>("/reviews", toAuthHeaders(token) ?? {})
-    : fetchJson<ReviewQueuePayload>("/reviews");
+    ? fetchJsonWithHeaders<ReviewQueuePayload>(path, toAuthHeaders(token) ?? {})
+    : fetchJson<ReviewQueuePayload>(path);
 }
 
-export async function getReviewQueueSafe(token?: string) {
-  return fetchJsonSafe("/reviews", EMPTY_REVIEW_QUEUE, token);
+export async function getReviewQueueSafe(token?: string, page = 1, pageSize = 50) {
+  return fetchJsonSafe(
+    `/reviews?page=${page}&pageSize=${pageSize}`,
+    { ...EMPTY_REVIEW_QUEUE, pagination: { page, pageSize, total: 0 } },
+    token
+  );
 }
 
 export async function getChatOverview(studentId?: string, token?: string) {
@@ -768,6 +1079,13 @@ export async function createSubmission(
     payload,
     toAuthHeaders(token)
   );
+}
+
+export async function getSubmissionDetail(submissionId: string, token?: string) {
+  const path = `/submissions/${encodeURIComponent(submissionId)}`;
+  return token
+    ? fetchJsonWithHeaders<SubmissionDetail>(path, toAuthHeaders(token) ?? {})
+    : fetchJson<SubmissionDetail>(path);
 }
 
 export async function createChatMessage(
@@ -938,6 +1256,34 @@ export async function fetchAgentAvatarsWithToken(token: string): Promise<AgentAv
   return fetchJsonWithHeaders<AgentAvatar[]>("/agent-avatars", toAuthHeaders(token) ?? {});
 }
 
+export async function fetchAgentAvatarWithToken(
+  studentId: string,
+  token: string
+): Promise<AgentAvatar> {
+  return fetchJsonWithHeaders<AgentAvatar>(
+    `/agent-avatars/${encodeURIComponent(studentId)}`,
+    toAuthHeaders(token) ?? {}
+  );
+}
+
+export async function fetchMyAgentAvatarWithToken(
+  token: string,
+): Promise<AgentAvatar> {
+  return fetchJsonWithHeaders<AgentAvatar>(
+    "/agent-avatars/me",
+    toAuthHeaders(token) ?? {},
+  );
+}
+
+export async function moveMyAgentToZone(zone: AgentZone, token: string) {
+  return writeJson<AgentAvatar>(
+    "/agent-avatars/me/zone",
+    "PUT",
+    token,
+    { zone },
+  );
+}
+
 export async function fetchAgentAvatarsSafe(
   zone?: string,
   token?: string
@@ -983,15 +1329,20 @@ export async function fetchNpcConversation(
   npcId: string,
   studentId?: string,
   message?: string,
+  token?: string,
 ): Promise<NpcConversationResponse> {
   const params = new URLSearchParams();
   if (studentId) params.set("studentId", studentId);
   if (message) params.set("message", message);
   const query = params.toString() ? `?${params.toString()}` : "";
 
-  return fetchJson<NpcConversationResponse>(
-    `/npc/${encodeURIComponent(npcId)}/conversation${query}`,
-  );
+  const path = `/npc/${encodeURIComponent(npcId)}/conversation${query}`;
+  if (typeof window !== "undefined") {
+    return fetchSameOriginJson<NpcConversationResponse>(`/api${path}`);
+  }
+  return token
+    ? fetchJsonWithHeaders<NpcConversationResponse>(path, toAuthHeaders(token) ?? {})
+    : fetchJson<NpcConversationResponse>(path);
 }
 
 /**
@@ -1002,19 +1353,22 @@ export async function fetchNpcConversationSafe(
   npcId: string,
   studentId?: string,
   message?: string,
+  token?: string,
 ): Promise<ApiPayloadState<NpcConversationResponse>> {
-  const params = new URLSearchParams();
-  if (studentId) params.set("studentId", studentId);
-  if (message) params.set("message", message);
-  const query = params.toString() ? `?${params.toString()}` : "";
-  const path = `/npc/${encodeURIComponent(npcId)}/conversation${query}`;
-
-  return fetchJsonSafe(path, {
-    npcId,
-    npcName: "",
-    reply: "",
-    degraded: true,
-  });
+  try {
+    const data = await fetchNpcConversation(npcId, studentId, message, token);
+    return { data, degraded: false };
+  } catch {
+    return {
+      data: {
+        npcId,
+        npcName: "",
+        reply: "",
+        degraded: true,
+      },
+      degraded: true,
+    };
+  }
 }
 
 /* ------------------------------------------------------------------ */

@@ -16,6 +16,8 @@ export type ReviewQueuePort = {
     data: ReviewQueuePayload,
     opts: JobsOptions
   ): Promise<unknown>;
+  waitUntilReady?(): Promise<unknown>;
+  getJobCounts?(): Promise<unknown>;
   close?(): Promise<void>;
 };
 
@@ -30,6 +32,10 @@ export function getReviewQueueConnection() {
 
 export function isReviewQueueConfigured() {
   return Boolean(process.env.REDIS_URL?.trim());
+}
+
+export function isReviewQueueRequired() {
+  return process.env.REVIEW_QUEUE_REQUIRED === "1";
 }
 
 export function createReviewQueue(): ReviewQueuePort {
@@ -56,6 +62,11 @@ export class ReviewQueueService implements OnApplicationShutdown {
       { submissionId },
       {
         jobId,
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 2_000
+        },
         removeOnComplete: true,
         removeOnFail: 100
       }
@@ -69,6 +80,17 @@ export class ReviewQueueService implements OnApplicationShutdown {
 
   async onApplicationShutdown() {
     await this.queue?.close?.();
+  }
+
+  async checkHealth(): Promise<"up" | "disabled"> {
+    if (this.queueFactory === createReviewQueue && !isReviewQueueConfigured()) {
+      return "disabled";
+    }
+
+    const queue = this.getQueue();
+    await queue.waitUntilReady?.();
+    await queue.getJobCounts?.();
+    return "up";
   }
 
   private getQueue() {

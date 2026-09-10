@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -10,12 +10,17 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import type {
+  AvatarMoveAck,
+  AvatarMoveCommand,
+  AvatarMovement,
   ClassroomSessionStatus,
   ClassroomStage,
   HelpRequest
 } from "contracts";
 import { PrismaService } from "../../prisma/prisma.service";
 import { hashSessionToken } from "../auth/auth.service";
+import { PresenceService } from "./presence.service";
+import { AgentWorldService } from "./agent-world.service";
 
 /**
  * Presence update payload broadcasted to clients in a specific zone.
@@ -114,11 +119,20 @@ const SESSION_CHECK_INTERVAL_MS = 60_000;
 @Injectable()
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(RealtimeGateway.name);
+  private readonly presence: PresenceService;
+  private readonly agentWorld?: AgentWorldService;
 
   /** Maps client IDs to their session-check interval timers (R-029). */
   private readonly sessionTimers = new Map<string, ReturnType<typeof setInterval>>();
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(PresenceService) presence?: PresenceService,
+    @Optional() @Inject(AgentWorldService) agentWorld?: AgentWorldService,
+  ) {
+    this.presence = presence ?? new PresenceService();
+    this.agentWorld = agentWorld;
+  }
 
   @WebSocketServer()
   server!: Server;
@@ -172,11 +186,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     client.data = client.data ?? {};
     client.data.userId = session.userId;
+    if (this.presence.connect(session.userId, client.id) && this.server) {
+      this.broadcastPresence({ userId: session.userId, location: "main_city", state: "online" });
+    }
 
     // R-004/A-005: Join the client to their personal chat room so they
     // receive chat:message events for messages in their own room.
     const chatRoomId = `room-chat-${session.userId}`;
     await client.join(chatRoomId);
+    await client.join(`workstation:${session.userId}`);
     this.logger.log(`Client ${client.id} joined chat room: ${chatRoomId}`);
 
     // R-029: Set up periodic session-expiry check.
@@ -213,6 +231,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (timer) {
       clearInterval(timer);
       this.sessionTimers.delete(client.id);
+    }
+    const userId = client.data?.userId;
+    if (typeof userId === "string" && this.presence.disconnect(userId, client.id) && this.server) {
+      this.broadcastPresence({ userId, location: "main_city", state: "offline" });
     }
   }
 
@@ -314,6 +336,26 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await client.join(zoneRoom);
     this.logger.log(`Client ${client.id} joined zone: ${zoneRoom}`);
     return { zone: data.zone };
+  }
+
+  @SubscribeMessage("avatar:move")
+  async handleAvatarMove(
+    @MessageBody() data: AvatarMoveCommand,
+    @ConnectedSocket() client: Socket,
+  ): Promise<AvatarMoveAck> {
+    if (!client.data?.userId) {
+      return { accepted: false, reason: "authentication_required" };
+    }
+    if (!this.agentWorld) {
+      return { accepted: false, reason: "invalid_target" };
+    }
+
+    const result = await this.agentWorld.moveAvatar(
+      String(client.data.userId),
+      data,
+    );
+    if (result.accepted) this.broadcastAvatarMovement(result.movement);
+    return result;
   }
 
   @SubscribeMessage("classroom:subscribe")
@@ -433,6 +475,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   broadcastAgentStatus(payload: AgentStatusPayload) {
     const zoneRoom = `zone:${payload.currentZone}`;
     this.server.to(zoneRoom).emit("agent-status:update", payload);
+  }
+
+  broadcastAvatarMovement(payload: AvatarMovement) {
+    this.server
+      .to(`workstation:${payload.studentId}`)
+      .emit("avatar:movement", payload);
   }
 
   /**

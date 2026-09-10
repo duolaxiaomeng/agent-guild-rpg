@@ -1,8 +1,13 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { AgentSessionStatus, PrismaClient } from "@prisma/client";
+import {
+  AgentConnectorStatus,
+  AgentSessionStatus,
+  AgentTaskStatus,
+  PrismaClient
+} from "@prisma/client";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedDatabase } from "../prisma/seed";
 import { AppModule } from "../src/app.module";
 import { ReviewProcessingService } from "../src/modules/queue/review.processor";
@@ -18,9 +23,14 @@ describe("submission flow", () => {
   let cachedStudentToken: string | undefined;
   let cachedSecondStudentToken: string | undefined;
   let cachedTeacherToken: string | undefined;
+  const enqueueReview = vi.fn(async (submissionId: string) => ({
+    jobId: `review-${submissionId}`,
+    status: "queued" as const
+  }));
 
   function buildSubmissionBody(overrides: Partial<Record<string, unknown>> = {}) {
     return {
+      clientRequestId: "submission-request-001",
       studentId: "student-1",
       courseWorldId: "course-world-1",
       dayId: "day-1",
@@ -95,10 +105,7 @@ describe("submission flow", () => {
       })
       .overrideProvider(ReviewQueueService)
       .useValue({
-        enqueue: async (submissionId: string) => ({
-          jobId: `review-${submissionId}`,
-          status: "queued" as const
-        })
+        enqueue: enqueueReview
       })
       .compile();
 
@@ -108,11 +115,34 @@ describe("submission flow", () => {
   });
 
   beforeEach(async () => {
+    enqueueReview.mockClear();
+    enqueueReview.mockImplementation(async (submissionId: string) => ({
+      jobId: `review-${submissionId}`,
+      status: "queued" as const
+    }));
     await prisma.reviewResult.deleteMany();
     await prisma.agentSubmission.deleteMany();
+    await prisma.agentTaskAttempt.deleteMany();
+    await prisma.agentTaskDependency.deleteMany();
+    await prisma.agentTask.deleteMany();
+    await prisma.agentEvent.deleteMany();
+    await prisma.agentConnector.deleteMany();
     await prisma.agentSession.deleteMany({ where: { id: { not: "session-1" } } });
     await prisma.guildMembership.deleteMany({ where: { guildId: { not: "guild-1" } } });
     await prisma.guild.deleteMany({ where: { id: { not: "guild-1" } } });
+    await prisma.agentConnector.create({
+      data: {
+        id: "connector-1",
+        studentId: "student-1",
+        agentSessionId: "session-1",
+        provider: "claude-code",
+        clientName: "Submission Flow Connector",
+        tokenHash: "submission-flow-token-1",
+        status: AgentConnectorStatus.online,
+        capabilities: ["submit"],
+        lastSeenAt: new Date()
+      }
+    });
   });
 
   afterAll(async () => {
@@ -120,7 +150,7 @@ describe("submission flow", () => {
     await prisma.$disconnect();
   });
 
-  it("lists seeded guilds and persists a created guild", async () => {
+  it("lists seeded guilds and prevents a student from creating a second guild", async () => {
     const studentToken = await loginAsStudent();
     const listResponse = await request(app.getHttpServer())
       .get("/guilds")
@@ -143,18 +173,17 @@ describe("submission flow", () => {
         name: "Morning Forge",
         description: "Students collaborate on daily agent quests and peer review.",
         memberCount: 3,
-        collaborationPoints: 12
+        collaborationPoints: 12,
+        viewerMembership: {
+          id: "guild-membership-1",
+          userId: "student-1",
+          role: "leader",
+          status: "active"
+        }
       }
     ]);
 
-    expect(createResponse.status).toBe(201);
-    expect(createResponse.body).toEqual({
-      id: expect.any(String),
-      name: "Night Shift",
-      description: "Students pair on daily agent quests and share review notes.",
-      memberCount: 1,
-      collaborationPoints: 0
-    });
+    expect(createResponse.status).toBe(409);
 
     expect(refreshedListResponse.status).toBe(200);
     expect(refreshedListResponse.body).toEqual([
@@ -163,14 +192,13 @@ describe("submission flow", () => {
         name: "Morning Forge",
         description: "Students collaborate on daily agent quests and peer review.",
         memberCount: 3,
-        collaborationPoints: 12
-      },
-      {
-        id: createResponse.body.id,
-        name: "Night Shift",
-        description: "Students pair on daily agent quests and share review notes.",
-        memberCount: 1,
-        collaborationPoints: 0
+        collaborationPoints: 12,
+        viewerMembership: {
+          id: "guild-membership-1",
+          userId: "student-1",
+          role: "leader",
+          status: "active"
+        }
       }
     ]);
   });
@@ -208,6 +236,7 @@ describe("submission flow", () => {
     expect(response.status).toBe(201);
     expect(response.body.submission).toMatchObject({
       id: expect.any(String),
+      clientRequestId: "submission-request-001",
       studentId: "student-1",
       courseWorldId: "course-world-1",
       dayId: "day-1",
@@ -267,6 +296,241 @@ describe("submission flow", () => {
     });
   });
 
+  it("turns a completed assigned Agent task into real submission evidence after student confirmation", async () => {
+    const studentToken = await loginAsStudent();
+    const otherStudentToken = await loginAsSecondStudent();
+    await prisma.agentTask.create({
+      data: {
+        id: "assigned-task-1",
+        runId: "day-1-student-1-frontend",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        studentId: "student-1",
+        provider: "claude-code",
+        requiredCapabilities: ["provider-process"],
+        status: AgentTaskStatus.completed,
+        payload: {
+          instruction: "完成 Day 1 页面并运行前端测试"
+        },
+        result: {
+          runId: "day-1-student-1-frontend",
+          dayId: "day-1",
+          provider: "claude-code",
+          succeeded: true,
+          exitCode: 0,
+          output: "Implemented the page. 12 tests passed.",
+          outputTruncated: false,
+          timedOut: false,
+          cancelled: false,
+          durationMs: 4200
+        },
+        attemptCount: 1,
+        leaseOwnerId: "connector-1",
+        completedAt: new Date("2026-07-15T02:00:00.000Z")
+      }
+    });
+
+    const otherStudentRuns = await request(app.getHttpServer())
+      .get("/agent-orchestration/my-runs")
+      .set("Authorization", `Bearer ${otherStudentToken}`);
+    const forbiddenConfirmation = await request(app.getHttpServer())
+      .post("/submissions/from-agent-task")
+      .set("Authorization", `Bearer ${otherStudentToken}`)
+      .send({
+        runId: "day-1-student-1-frontend",
+        selfReflection:
+          "我不能确认其他学生的任务，这个请求应由后端权限边界拒绝。"
+      });
+    expect(otherStudentRuns.status).toBe(200);
+    expect(otherStudentRuns.body).toEqual([]);
+    expect(forbiddenConfirmation.status).toBe(403);
+
+    const assignedBeforeSubmission = await request(app.getHttpServer())
+      .get("/agent-orchestration/my-runs")
+      .set("Authorization", `Bearer ${studentToken}`);
+
+    expect(assignedBeforeSubmission.status).toBe(200);
+    expect(assignedBeforeSubmission.body).toEqual([
+      expect.objectContaining({
+        id: "assigned-task-1",
+        runId: "day-1-student-1-frontend",
+        studentId: "student-1",
+        courseWorldId: "course-world-1",
+        dayId: "day-1",
+        status: "completed",
+        result: expect.objectContaining({
+          exitCode: 0,
+          output: "Implemented the page. 12 tests passed."
+        }),
+        submission: null
+      })
+    ]);
+
+    const confirmation = await request(app.getHttpServer())
+      .post("/submissions/from-agent-task")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send({
+        runId: "day-1-student-1-frontend",
+        selfReflection:
+          "我确认 Agent 已完成页面实现，并根据测试结果检查了交付内容。"
+      });
+
+    expect(confirmation.status).toBe(201);
+    expect(confirmation.body.submission).toMatchObject({
+      clientRequestId: "agent-task:assigned-task-1",
+      studentId: "student-1",
+      courseWorldId: "course-world-1",
+      dayId: "day-1",
+      agentSessionId: "session-1",
+      triggerType: "button",
+      workSummary: expect.stringContaining(
+        "Implemented the page. 12 tests passed."
+      ),
+      artifacts: [
+        {
+          kind: "command_log",
+          label: "Agent 任务 day-1-student-1-frontend 执行证据",
+          url: "/agent-team#agent-run-assigned-task-1"
+        }
+      ],
+      agentEvaluationHints: expect.arrayContaining([
+        "Agent provider: claude-code",
+        "Process exit code: 0",
+        "Execution duration: 4200ms",
+        "Output truncated: no"
+      ])
+    });
+    expect(confirmation.body.review.status).toBe("queued");
+    expect(confirmation.body.queue).toEqual({
+      jobId: `review-${confirmation.body.submission.id}`,
+      status: "queued"
+    });
+
+    const persisted = await prisma.agentSubmission.findUniqueOrThrow({
+      where: {
+        studentId_clientRequestId: {
+          studentId: "student-1",
+          clientRequestId: "agent-task:assigned-task-1"
+        }
+      },
+      include: { reviewResult: true }
+    });
+    expect(persisted.workSummary).toContain("12 tests passed");
+    expect(persisted.reviewResult?.status).toBe("queued");
+
+    const assignedAfterSubmission = await request(app.getHttpServer())
+      .get("/agent-orchestration/my-runs")
+      .set("Authorization", `Bearer ${studentToken}`);
+    expect(assignedAfterSubmission.body[0].submission).toMatchObject({
+      id: confirmation.body.submission.id,
+      reviewStatus: "queued",
+      decision: null
+    });
+  });
+
+  it("returns the same submission for an idempotent retry and rejects a second pending request", async () => {
+    const studentToken = await loginAsStudent();
+    const first = await request(app.getHttpServer())
+      .post("/submissions")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send(buildSubmissionBody());
+    const retry = await request(app.getHttpServer())
+      .post("/submissions")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send(buildSubmissionBody());
+    const competing = await request(app.getHttpServer())
+      .post("/submissions")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send(buildSubmissionBody({ clientRequestId: "submission-request-002" }));
+
+    expect(retry.status).toBe(201);
+    expect(retry.body.submission.id).toBe(first.body.submission.id);
+    expect(competing.status).toBe(409);
+    expect(await prisma.agentSubmission.count()).toBe(1);
+  });
+
+  it("keeps the submission queued when Redis is unavailable", async () => {
+    enqueueReview.mockRejectedValueOnce(new Error("Redis offline"));
+    const studentToken = await loginAsStudent();
+    const response = await request(app.getHttpServer())
+      .post("/submissions")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send(buildSubmissionBody());
+
+    expect(response.status).toBe(201);
+    expect(response.body.queue).toEqual({
+      jobId: `review-${response.body.submission.id}`,
+      status: "waiting_for_queue"
+    });
+    expect(
+      await prisma.reviewResult.findUnique({
+        where: { submissionId: response.body.submission.id }
+      })
+    ).toMatchObject({ status: "queued" });
+  });
+
+  it("lets a teacher read the complete submission, review snapshot, and Agent evidence", async () => {
+    const studentToken = await loginAsStudent();
+    const teacherToken = await loginAsTeacher();
+    await prisma.agentEvent.create({
+      data: {
+        eventId: "submission-evidence-event-1",
+        connectorId: "connector-1",
+        studentId: "student-1",
+        dayId: "day-1",
+        type: "task.completed",
+        payload: { command: "pnpm test", exitCode: 0 },
+        occurredAt: new Date("2026-06-29T11:59:00.000Z")
+      }
+    });
+    const createResponse = await request(app.getHttpServer())
+      .post("/submissions")
+      .set("Authorization", `Bearer ${studentToken}`)
+      .send(
+        buildSubmissionBody({
+          artifacts: [
+            {
+              kind: "command_log",
+              label: "Test output",
+              url: "/artifacts/submission-1/test-output.txt"
+            }
+          ]
+        })
+      );
+
+    const response = await request(app.getHttpServer())
+      .get(`/submissions/${createResponse.body.submission.id}`)
+      .set("Authorization", `Bearer ${teacherToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.submission).toMatchObject({
+      id: createResponse.body.submission.id,
+      studentName: "Lin",
+      dayTitle: "首次 Agent 协作：把需求变成可验收任务",
+      workSummary: "Student produced a README and screenshot.",
+      selfReflection: "I learned to tell the agent what success looks like.",
+      artifacts: [
+        {
+          kind: "command_log",
+          label: "Test output",
+          url: "/artifacts/submission-1/test-output.txt"
+        }
+      ]
+    });
+    expect(response.body.review).toMatchObject({
+      submissionId: createResponse.body.submission.id,
+      status: "queued"
+    });
+    expect(response.body.agentEvents).toEqual([
+      {
+        eventId: "submission-evidence-event-1",
+        type: "task.completed",
+        payload: { command: "pnpm test", exitCode: 0 },
+        occurredAt: "2026-06-29T11:59:00.000Z"
+      }
+    ]);
+  });
+
   it("rejects anonymous submission creation", async () => {
     const response = await request(app.getHttpServer())
       .post("/submissions")
@@ -299,6 +563,19 @@ describe("submission flow", () => {
         status: AgentSessionStatus.active
       }
     });
+    await prisma.agentConnector.create({
+      data: {
+        id: "connector-2",
+        studentId: "student-2",
+        agentSessionId: "session-2",
+        provider: "claude-code",
+        clientName: "Submission Flow Connector 2",
+        tokenHash: "submission-flow-token-2",
+        status: AgentConnectorStatus.online,
+        capabilities: ["submit"],
+        lastSeenAt: new Date()
+      }
+    });
 
     const response = await request(app.getHttpServer())
       .post("/submissions")
@@ -323,10 +600,10 @@ describe("submission flow", () => {
     await prisma.reviewResult.update({
       where: { submissionId: submissionResponse.body.submission.id },
       data: {
-        status: "ai_reviewed",
+        status: "needs_teacher",
         suggestedScore: 85,
-        decision: "approve",
-        rationale: "Clear goal, evidence of correction, and visible artifact.",
+        decision: null,
+        rationale: "AI review failed and requires teacher handling.",
         aiReviewedAt: new Date()
       }
     });
@@ -355,6 +632,11 @@ describe("submission flow", () => {
     expect(persistedReview.finalScore).toBe(90);
     expect(persistedReview.decision).toBe("adjust");
     expect(persistedReview.decidedAt).not.toBeNull();
+    expect(
+      await prisma.agentSubmission.findUniqueOrThrow({
+        where: { id: submissionResponse.body.submission.id }
+      })
+    ).toMatchObject({ pendingReviewKey: null });
   });
 
   it("returns a teacher review list with summary and latest-first items", async () => {
@@ -367,6 +649,19 @@ describe("submission flow", () => {
         studentId: "student-2",
         provider: "claude-code",
         status: AgentSessionStatus.active
+      }
+    });
+    await prisma.agentConnector.create({
+      data: {
+        id: "connector-2",
+        studentId: "student-2",
+        agentSessionId: "session-2",
+        provider: "claude-code",
+        clientName: "Submission Flow Connector 2",
+        tokenHash: "submission-flow-token-2",
+        status: AgentConnectorStatus.online,
+        capabilities: ["submit"],
+        lastSeenAt: new Date()
       }
     });
 
@@ -473,7 +768,7 @@ describe("submission flow", () => {
       ],
       pagination: {
         page: 1,
-        pageSize: 20,
+        pageSize: 50,
         total: 2
       }
     });

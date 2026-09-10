@@ -299,7 +299,16 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
           viewerRole={effectiveViewerRole}
           studentId={chatRoom.studentId}
           roomId={chatRoom.roomId}
-          dayId={currentQuest?.id ?? "day-1"}
+          courseWorldId={currentQuest?.courseWorldId ?? null}
+          dayId={currentQuest?.id ?? null}
+          agentSessionId={chatRoom.agentSessionId}
+          canSubmit={
+            !chatDegraded &&
+            !questsDegraded &&
+            effectiveViewerRole === "owner" &&
+            chatRoom.canSubmit &&
+            Boolean(currentQuest?.courseWorldId && currentQuest.id)
+          }
           agentLabel={chatRoom.agentLabel}
           sessionStatusLabel={toSessionStatusLabel(chatRoom.sessionStatus)}
           sessionSummary={chatRoom.sessionSummary}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HomePage from "./page";
 
@@ -76,9 +76,10 @@ describe("home page", () => {
       throw new Error("Unexpected fetch: " + url);
     });
 
-    render(await HomePage());
+    render(await HomePage({}));
 
     expect(screen.getByRole("heading", { name: /主城区/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Day 网站主题抽奖" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("当前登录：Teacher Lin（老师）")).toBeInTheDocument();
     });
@@ -87,7 +88,7 @@ describe("home page", () => {
   it("renders a safe fallback state when the world api is unavailable", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
 
-    render(await HomePage());
+    render(await HomePage({}));
 
     expect(screen.getByRole("heading", { name: /主城区/ })).toBeInTheDocument();
     expect(
@@ -96,6 +97,21 @@ describe("home page", () => {
     await waitFor(() => {
       expect(screen.getByText("当前登录：未登录")).toBeInTheDocument();
     });
+  });
+
+  it("lets the user collapse and reopen the mission rail", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    render(await HomePage({}));
+
+    const rail = screen.getByRole("group", { name: "今日任务概览" });
+    const toggle = screen.getByRole("button", { name: /第 1 天行动/ });
+
+    expect(rail).toHaveAttribute("open");
+    fireEvent.click(toggle);
+    expect(rail).not.toHaveAttribute("open");
+    fireEvent.click(toggle);
+    expect(rail).toHaveAttribute("open");
   });
 
   it("shows the classroom status banner for a logged-in student", async () => {
@@ -127,7 +143,7 @@ describe("home page", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(await HomePage());
+    render(await HomePage({}));
 
     expect(screen.getByRole("region", { name: "学生课堂状态" })).toBeInTheDocument();
     expect(screen.getByText("讲解")).toBeInTheDocument();

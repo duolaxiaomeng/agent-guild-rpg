@@ -9,12 +9,14 @@ import {
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
+import { PresenceService } from "../src/modules/realtime/presence.service";
 import { seedDatabase } from "../prisma/seed";
 import { prepareTestDatabase } from "./support/test-database";
 
 describe("world api", () => {
   let app: INestApplication;
   let prisma: PrismaClient;
+  let presence: PresenceService;
 
   async function loginAs(email: string, password: string) {
     const response = await request(app.getHttpServer()).post("/auth/login").send({
@@ -41,12 +43,15 @@ describe("world api", () => {
       imports: [AppModule]
     }).compile();
 
+    presence = moduleRef.get(PresenceService);
+
     app = moduleRef.createNestApplication();
     await app.init();
   });
 
   beforeEach(async () => {
     await seedDatabase(prisma);
+    presence.clear();
     // These tests exercise authorization and read-model shaping explicitly;
     // do not let seed grants/messages change the expected access or payload.
     await prisma.roomAccessGrant.deleteMany();
@@ -86,8 +91,9 @@ describe("world api", () => {
     expect(studentResponse.body.user.displayName).toBe("Lin");
   });
 
-  it("returns the world shell payload", async () => {
+  it("returns only currently connected residents in the public hall payload", async () => {
     const token = await loginAsStudent();
+    presence.connect("student-1", "world-test-lin");
     const response = await request(app.getHttpServer())
       .get("/world")
       .set("Authorization", `Bearer ${token}`);
@@ -99,18 +105,6 @@ describe("world api", () => {
       {
         ownerId: "student-1",
         displayName: "Lin",
-        location: "homestead",
-        isOnline: true
-      },
-      {
-        ownerId: "student-2",
-        displayName: "Mo",
-        location: "homestead",
-        isOnline: false
-      },
-      {
-        ownerId: "student-3",
-        displayName: "Kai",
         location: "homestead",
         isOnline: true
       }
@@ -225,6 +219,8 @@ describe("world api", () => {
       studentId: "student-1",
       studentName: "Lin",
       agentLabel: "Claude Code",
+      agentSessionId: null,
+      canSubmit: false,
       sessionStatus: "active",
       sessionSummary: "最近一次对话聚焦 README 打磨与截图整理。",
       latestSubmission: {

@@ -46,6 +46,7 @@ type AuthSessionData = {
     id: string;
     role: UserRole;
     displayName: string;
+    cohort?: { id: string; name: string } | null;
   };
 };
 

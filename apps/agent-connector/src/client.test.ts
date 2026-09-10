@@ -9,6 +9,22 @@ function response(body: unknown, status = 200) {
   } as Response;
 }
 
+function connectedProfile() {
+  return {
+    connectorId: "connector-1",
+    agentSessionId: "session-1",
+    connectorToken: "connector-secret",
+    provider: "codex-cli",
+    clientName: "lin-mac",
+    status: "online",
+    capabilities: ["events", "agent-task", "provider-process"],
+    roleKey: "frontend-developer",
+    visualRole: "coder",
+    connectedAt: "2026-07-12T04:00:00.000Z",
+    lastSeenAt: "2026-07-12T04:00:00.000Z"
+  };
+}
+
 function connectionCredential(serverUrl = "http://localhost:3001") {
   const payload = Buffer.from(JSON.stringify({
     version: 1,
@@ -27,24 +43,15 @@ describe("AgentConnectorClient", () => {
 
   it("connects with one credential and keeps the connector token private", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      response({
-        connectorId: "connector-1",
-        agentSessionId: "session-1",
-        connectorToken: "connector-secret",
-        provider: "codex-cli",
-        clientName: "lin-mac",
-        status: "online",
-        capabilities: ["events"],
-        connectedAt: "2026-07-12T04:00:00.000Z",
-        lastSeenAt: "2026-07-12T04:00:00.000Z"
-      })
+      response(connectedProfile())
     );
 
     const client = new AgentConnectorClient({
       connectionCredential: connectionCredential(),
       provider: "codex-cli",
       clientName: "lin-mac",
-      capabilities: ["events"]
+      capabilities: ["events"],
+      roleKey: "frontend-developer",
     });
 
     const profile = await client.connect();
@@ -59,7 +66,8 @@ describe("AgentConnectorClient", () => {
           connectionCredential: connectionCredential(),
           provider: "codex-cli",
           clientName: "lin-mac",
-          capabilities: ["events"]
+          capabilities: ["events"],
+          roleKey: "frontend-developer"
         })
       })
     );
@@ -70,17 +78,7 @@ describe("AgentConnectorClient", () => {
       async (input) => {
         const url = String(input);
         if (url.endsWith("/connect")) {
-          return response({
-            connectorId: "connector-1",
-            agentSessionId: "session-1",
-            connectorToken: "connector-secret",
-            provider: "codex-cli",
-            clientName: "lin-mac",
-            status: "online",
-            capabilities: ["events"],
-            connectedAt: "2026-07-12T04:00:00.000Z",
-            lastSeenAt: "2026-07-12T04:00:00.000Z"
-          });
+          return response(connectedProfile());
         }
 
         return response({
@@ -120,13 +118,18 @@ describe("AgentConnectorClient", () => {
         headers: expect.objectContaining({
           "X-Agent-Connector-Token": "connector-secret"
         }),
-        body: JSON.stringify({
-          dayId: "day-1",
-          type: "run.started",
-          payload: { instruction: "Inspect the project" }
-        })
+        body: expect.stringContaining('"dayId":"day-1"')
       })
     );
+    const eventRequest = fetchMock.mock.calls[2]?.[1];
+    const eventBody = JSON.parse(String(eventRequest?.body));
+    expect(eventBody).toMatchObject({
+      dayId: "day-1",
+      type: "run.started",
+      payload: { instruction: "Inspect the project" }
+    });
+    expect(eventBody.eventId).toMatch(/^connector-event-/);
+    expect(new Date(eventBody.occurredAt).toISOString()).toBe(eventBody.occurredAt);
   });
 
   it("aborts a request after the configured timeout without retrying connect", async () => {
@@ -161,19 +164,7 @@ describe("AgentConnectorClient", () => {
   it("retries only the idempotent heartbeat on retryable responses", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        response({
-          connectorId: "connector-1",
-          agentSessionId: "session-1",
-          connectorToken: "connector-secret",
-          provider: "codex-cli",
-          clientName: "lin-mac",
-          status: "online",
-          capabilities: ["events"],
-          connectedAt: "2026-07-12T04:00:00.000Z",
-          lastSeenAt: "2026-07-12T04:00:00.000Z"
-        })
-      )
+      .mockResolvedValueOnce(response(connectedProfile()))
       .mockResolvedValueOnce(response({}, 503))
       .mockResolvedValueOnce(
         response({
@@ -204,5 +195,123 @@ describe("AgentConnectorClient", () => {
     ).rejects.toThrow(/503/);
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses idempotent event batches and an authenticated cursor", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(connectedProfile()))
+      .mockResolvedValueOnce(response({ events: [] }))
+      .mockResolvedValueOnce(response({ events: [], nextCursor: null }));
+    const client = new AgentConnectorClient({
+      connectionCredential: connectionCredential(),
+      provider: "codex-cli",
+      clientName: "lin-mac",
+      capabilities: ["events"]
+    });
+
+    await client.connect();
+    await client.recordEvents([
+      { eventId: "event-1", dayId: "day-1", type: "run.started", payload: {} }
+    ]);
+    await client.readEventCursor({ cursor: "cursor/1", limit: 20 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:3001/agent-connectors/events/batch",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "X-Agent-Connector-Token": "connector-secret"
+        })
+      })
+    );
+    const batchBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(batchBody.events[0]).toMatchObject({
+      eventId: "event-1",
+      dayId: "day-1"
+    });
+    expect(batchBody.events[0].occurredAt).toBeTruthy();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:3001/agent-connectors/events/cursor?cursor=cursor%2F1&limit=20",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "X-Agent-Connector-Token": "connector-secret"
+        })
+      })
+    );
+  });
+
+  it("maps a 204 long-poll response to no task", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(connectedProfile()))
+      .mockResolvedValueOnce(response(undefined, 204));
+    const client = new AgentConnectorClient({
+      connectionCredential: connectionCredential(),
+      provider: "codex-cli",
+      clientName: "lin-mac",
+      capabilities: ["agent-task"]
+    });
+
+    await client.connect();
+    await expect(
+      client.claimTask({ lightCapacity: 1, heavyCapacity: 0, waitSeconds: 25 })
+    ).resolves.toBeNull();
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:3001/agent-connectors/tasks/claim",
+      expect.objectContaining({
+        body: JSON.stringify({
+          lightCapacity: 1,
+          heavyCapacity: 0,
+          waitSeconds: 25
+        }),
+        headers: expect.objectContaining({
+          "X-Agent-Connector-Token": "connector-secret"
+        })
+      })
+    );
+  });
+
+  it("sends lease heartbeats and idempotent terminal task results", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(connectedProfile()))
+      .mockResolvedValue(response({ id: "task/1", status: "completed" }));
+    const client = new AgentConnectorClient({
+      connectionCredential: connectionCredential(),
+      provider: "codex-cli",
+      clientName: "lin-mac",
+      capabilities: ["agent-task"]
+    });
+
+    await client.connect();
+    await client.heartbeatTask("task/1", "lease-secret");
+    await client.completeTask("task/1", "lease-secret", { output: "done" });
+    await client.failTask(
+      "task/1",
+      "lease-secret",
+      "infrastructure",
+      "temporary provider failure"
+    );
+
+    expect(fetchMock.mock.calls.slice(1).map(([url]) => String(url))).toEqual([
+      "http://localhost:3001/agent-connectors/tasks/task%2F1/heartbeat",
+      "http://localhost:3001/agent-connectors/tasks/task%2F1/complete",
+      "http://localhost:3001/agent-connectors/tasks/task%2F1/fail"
+    ]);
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(
+      JSON.stringify({ leaseToken: "lease-secret", result: { output: "done" } })
+    );
+    expect(fetchMock.mock.calls[3]?.[1]?.body).toBe(
+      JSON.stringify({
+        leaseToken: "lease-secret",
+        kind: "infrastructure",
+        error: "temporary provider failure"
+      })
+    );
   });
 });

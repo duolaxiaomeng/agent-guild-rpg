@@ -114,6 +114,108 @@ describe("local agent connector flow", () => {
     expect(profileResponse.body.connectorToken).toBeUndefined();
   });
 
+  it("binds a model-selected role and initializes the private workstation", async () => {
+    const studentToken = await loginAsStudent();
+    const pairingResponse = await request(app.getHttpServer())
+      .post("/agent-connectors/pairing")
+      .set("Authorization", `Bearer ${studentToken}`);
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/agent-connectors/connect")
+      .send({
+        connectionCredential: pairingResponse.body.connectionCredential,
+        provider: "codex-cli",
+        clientName: "role-selecting-agent",
+        capabilities: ["events", "agent-task", "provider-process"],
+        roleKey: "frontend-developer",
+      });
+
+    expect(connectResponse.status).toBe(201);
+    expect(connectResponse.body).toMatchObject({
+      roleKey: "frontend-developer",
+      visualRole: "coder",
+    });
+    await expect(
+      prisma.agentTeamBinding.findUnique({ where: { studentId: "student-1" } }),
+    ).resolves.toMatchObject({ roleKey: "frontend-developer" });
+    await expect(
+      prisma.agentWorldState.findUnique({ where: { studentId: "student-1" } }),
+    ).resolves.toMatchObject({
+      currentZone: "workstations",
+      positionX: 316,
+      positionY: 214,
+      facing: "left",
+    });
+  });
+
+  it("keeps legacy connectors compatible when no role is declared", async () => {
+    await prisma.agentWorldState.deleteMany({ where: { studentId: "student-1" } });
+    await prisma.agentTeamBinding.deleteMany({ where: { studentId: "student-1" } });
+    const studentToken = await loginAsStudent();
+    const pairingResponse = await request(app.getHttpServer())
+      .post("/agent-connectors/pairing")
+      .set("Authorization", `Bearer ${studentToken}`);
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/agent-connectors/connect")
+      .send({
+        connectionCredential: pairingResponse.body.connectionCredential,
+        provider: "legacy-cli",
+        clientName: "legacy-agent",
+        capabilities: ["events"],
+      });
+
+    expect(connectResponse.status).toBe(201);
+    expect(connectResponse.body).toMatchObject({
+      roleKey: null,
+      visualRole: null,
+    });
+  });
+
+  it("resets the persisted position when the connected Agent changes role", async () => {
+    await prisma.agentTeamBinding.create({
+      data: { studentId: "student-1", roleKey: "ta" },
+    });
+    await prisma.agentWorldState.create({
+      data: {
+        studentId: "student-1",
+        currentZone: "workstations",
+        positionX: 500,
+        positionY: 300,
+        facing: "down",
+        revision: 4,
+      },
+    });
+    const studentToken = await loginAsStudent();
+    const pairingResponse = await request(app.getHttpServer())
+      .post("/agent-connectors/pairing")
+      .set("Authorization", `Bearer ${studentToken}`);
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/agent-connectors/connect")
+      .send({
+        connectionCredential: pairingResponse.body.connectionCredential,
+        provider: "codex-cli",
+        clientName: "role-changing-agent",
+        capabilities: ["events", "agent-task", "provider-process"],
+        roleKey: "qa",
+      });
+
+    expect(connectResponse.status).toBe(201);
+    expect(connectResponse.body).toMatchObject({
+      roleKey: "qa",
+      visualRole: "files",
+    });
+    await expect(
+      prisma.agentWorldState.findUnique({ where: { studentId: "student-1" } }),
+    ).resolves.toMatchObject({
+      positionX: 122,
+      positionY: 348,
+      facing: "right",
+      revision: 5,
+    });
+  });
+
   it("refreshes connector presence and records a Day event", async () => {
     const { studentToken, connectorToken, connectorId } = await pairConnector();
 
@@ -157,6 +259,79 @@ describe("local agent connector flow", () => {
       type: "run.started",
       dayId: "day-1"
     });
+  });
+
+  it("stores event batches idempotently and advances a connector cursor", async () => {
+    const { connectorToken, connectorId } = await pairConnector();
+    const events = [
+      {
+        eventId: "batch-event-1",
+        dayId: "day-1",
+        type: "run.started",
+        payload: { step: 1 },
+        occurredAt: "2026-07-14T04:00:00.000Z"
+      },
+      {
+        eventId: "batch-event-2",
+        dayId: "day-1",
+        type: "run.completed",
+        payload: { step: 2 },
+        occurredAt: "2026-07-14T04:00:01.000Z"
+      }
+    ];
+
+    const first = await request(app.getHttpServer())
+      .post("/agent-connectors/events/batch")
+      .set("X-Agent-Connector-Token", connectorToken)
+      .send({ events });
+    const replay = await request(app.getHttpServer())
+      .post("/agent-connectors/events/batch")
+      .set("X-Agent-Connector-Token", connectorToken)
+      .send({ events: events.map((event) => ({ ...event, payload: { replay: true } })) });
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(replay.body.events.map((event: { id: string }) => event.id)).toEqual(
+      first.body.events.map((event: { id: string }) => event.id)
+    );
+    expect(replay.body.events[0].payload).toEqual({ step: 1 });
+
+    const firstPage = await request(app.getHttpServer())
+      .get("/agent-connectors/events/cursor?limit=1")
+      .set("X-Agent-Connector-Token", connectorToken);
+    expect(firstPage.status).toBe(200);
+    expect(firstPage.body).toMatchObject({
+      hasMore: true,
+      nextCursor: first.body.events[0].id,
+      events: [expect.objectContaining({ connectorId, eventId: "batch-event-1" })]
+    });
+
+    const secondPage = await request(app.getHttpServer())
+      .get(`/agent-connectors/events/cursor?limit=10&cursor=${firstPage.body.nextCursor}`)
+      .set("X-Agent-Connector-Token", connectorToken);
+    expect(secondPage.status).toBe(200);
+    expect(secondPage.body).toMatchObject({
+      hasMore: false,
+      nextCursor: first.body.events[1].id,
+      events: [expect.objectContaining({ eventId: "batch-event-2" })]
+    });
+  });
+
+  it("marks a connector offline after 75 seconds without heartbeat", async () => {
+    const { studentToken } = await pairConnector();
+    await prisma.agentConnector.updateMany({
+      where: { studentId: "student-1" },
+      data: {
+        status: "online",
+        lastSeenAt: new Date(Date.now() - 76_000)
+      }
+    });
+
+    const profile = await request(app.getHttpServer())
+      .get("/agent-connectors/me")
+      .set("Authorization", `Bearer ${studentToken}`);
+    expect(profile.status).toBe(200);
+    expect(profile.body.status).toBe("offline");
   });
 
   it("does not allow a connector credential to be reused", async () => {

@@ -6,9 +6,11 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import { Prisma, UserRole } from "@prisma/client";
+import { AgentConnectorStatus, Prisma, UserRole } from "@prisma/client";
 import * as crypto from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
+
+const AGENT_ONLINE_WINDOW_MS = 75 * 1000;
 
 export type LotteryActor = {
   id: string;
@@ -30,6 +32,9 @@ export class WebsiteLotteryService {
 
   async getDayLottery(dayId: string, actor: LotteryActor) {
     await this.requireDay(dayId);
+    const agentOnline = actor.role === UserRole.student
+      ? await this.hasOnlineAgent(actor.id)
+      : false;
     const options = await this.prisma.websiteLotteryOption.findMany({
       where: actor.role === UserRole.teacher ? { dayId } : { dayId, isActive: true },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
@@ -51,6 +56,7 @@ export class WebsiteLotteryService {
 
     return {
       dayId,
+      agentOnline,
       options: options
         .filter((option) => !drawnOptionIds.has(option.id) || (draw && draw.option.id === option.id))
         .map((option) => this.toOption(option)),
@@ -129,6 +135,7 @@ export class WebsiteLotteryService {
     if (actor.role !== UserRole.student) {
       throw new ForbiddenException("Only students can draw a website topic");
     }
+    await this.requireOnlineAgent(actor.id);
     await this.requireDay(dayId);
     const existing = await this.prisma.websiteLotteryDraw.findUnique({
       where: { dayId_studentId: { dayId, studentId: actor.id } },
@@ -138,16 +145,7 @@ export class WebsiteLotteryService {
       return { alreadyDrawn: true, draw: this.toDraw(existing) };
     }
 
-    const drawnOptionIds = new Set(
-      (await this.prisma.websiteLotteryDraw.findMany({
-        where: { dayId },
-        select: { optionId: true }
-      })).map((item) => item.optionId)
-    );
-    const availableOptions = await this.prisma.websiteLotteryOption.findMany({
-      where: { dayId, isActive: true, id: { notIn: [...drawnOptionIds] } },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
-    });
+    const availableOptions = await this.getAvailableOptions(dayId);
     if (availableOptions.length === 0) {
       throw new BadRequestException("No remaining website lottery options for this day");
     }
@@ -180,12 +178,93 @@ export class WebsiteLotteryService {
     throw new BadRequestException("No remaining website lottery options for this day");
   }
 
+  async redraw(dayId: string, actor: LotteryActor) {
+    if (actor.role !== UserRole.student) {
+      throw new ForbiddenException("Only students can redraw a website topic");
+    }
+    await this.requireOnlineAgent(actor.id);
+    await this.requireDay(dayId);
+    const existing = await this.prisma.websiteLotteryDraw.findUnique({
+      where: { dayId_studentId: { dayId, studentId: actor.id } },
+      include: { option: true }
+    });
+    if (!existing) {
+      return this.draw(dayId, actor);
+    }
+
+    const availableOptions = await this.getAvailableOptions(dayId);
+    const redrawOptions = availableOptions.filter((option) => option.id !== existing.optionId);
+    if (redrawOptions.length === 0) {
+      throw new BadRequestException("No remaining website lottery options for this day");
+    }
+
+    while (redrawOptions.length > 0) {
+      const selected = redrawOptions[crypto.randomInt(0, redrawOptions.length)];
+      try {
+        const draw = await this.prisma.$transaction(async (tx) => {
+          await tx.websiteLotteryDraw.delete({
+            where: { dayId_studentId: { dayId, studentId: actor.id } }
+          });
+          return tx.websiteLotteryDraw.create({
+            data: { dayId, studentId: actor.id, optionId: selected.id },
+            include: { option: true }
+          });
+        });
+        return { alreadyDrawn: false, draw: this.toDraw(draw) };
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+          throw error;
+        }
+        const selectedIndex = redrawOptions.findIndex((option) => option.id === selected.id);
+        if (selectedIndex >= 0) {
+          redrawOptions.splice(selectedIndex, 1);
+        }
+      }
+    }
+
+    throw new BadRequestException("No remaining website lottery options for this day");
+  }
+
   private async requireDay(dayId: string) {
     const day = await this.prisma.questDay.findUnique({
       where: { id: dayId },
       select: { id: true }
     });
     if (!day) throw new NotFoundException("Quest day not found");
+  }
+
+  private async hasOnlineAgent(studentId: string) {
+    const connector = await this.prisma.agentConnector.findFirst({
+      where: {
+        studentId,
+        status: AgentConnectorStatus.online,
+        lastSeenAt: {
+          gt: new Date(Date.now() - AGENT_ONLINE_WINDOW_MS)
+        }
+      },
+      select: { id: true }
+    });
+    return connector !== null;
+  }
+
+  private async requireOnlineAgent(studentId: string) {
+    if (!(await this.hasOnlineAgent(studentId))) {
+      throw new ForbiddenException("An online Agent is required to draw a website topic");
+    }
+  }
+
+  private async getAvailableOptions(dayId: string, excludedOptionIds: string[] = []) {
+    const drawnOptionIds = new Set(
+      (await this.prisma.websiteLotteryDraw.findMany({
+        where: { dayId },
+        select: { optionId: true }
+      })).map((item) => item.optionId)
+    );
+    const blockedOptionIds = new Set([...drawnOptionIds, ...excludedOptionIds]);
+    return this.prisma.websiteLotteryOption.findMany({
+      where: { dayId, isActive: true, id: { notIn: [...blockedOptionIds] } },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
+    });
   }
 
   private requireTeacher(actor: LotteryActor) {

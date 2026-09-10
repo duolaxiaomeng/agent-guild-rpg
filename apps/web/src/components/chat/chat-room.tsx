@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, useState } from "react";
+import { CSSProperties, useRef, useState } from "react";
 import {
   createSubmission,
   type ChatMessage,
@@ -156,9 +156,10 @@ type ChatRoomProps = {
   viewerRole: "owner" | "guest" | "teacher";
   studentId?: string;
   roomId?: string;
-  courseWorldId?: string;
-  dayId?: string;
-  agentSessionId?: string;
+  courseWorldId?: string | null;
+  dayId?: string | null;
+  agentSessionId?: string | null;
+  canSubmit?: boolean;
   agentLabel: string;
   sessionStatusLabel: string;
   sessionSummary: string;
@@ -175,11 +176,12 @@ type ChatRoomProps = {
 export function ChatRoom({
   studentName,
   viewerRole,
-  studentId = "student-1",
-  roomId = `room-chat-${studentId}`,
-  courseWorldId = "course-world-1",
-  dayId = "day-1",
-  agentSessionId = "session-1",
+  studentId = "",
+  roomId = "",
+  courseWorldId = null,
+  dayId = null,
+  agentSessionId = null,
+  canSubmit = false,
   agentLabel,
   sessionStatusLabel,
   sessionSummary,
@@ -210,6 +212,7 @@ export function ChatRoom({
   const [currentSubmissionMeta, setCurrentSubmissionMeta] = useState(
     latestSubmissionMeta
   );
+  const requestIdRef = useRef<string | null>(null);
 
   const roomHeading =
     viewerRole === "teacher"
@@ -238,12 +241,27 @@ export function ChatRoom({
       setSubmitFeedback("当前登录已失效，请重新登录。");
       return;
     }
+    if (
+      viewerRole !== "owner" ||
+      !canSubmit ||
+      !courseWorldId ||
+      !dayId ||
+      !agentSessionId
+    ) {
+      setSubmitFeedback("请先连接本地 Agent，并等待连接状态变为在线。");
+      return;
+    }
+
+    requestIdRef.current ??= `chat-submit:${
+      globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    }`;
 
     setIsSubmitting(true);
     setSubmitFeedback("正在提交到评审队列...");
 
     try {
-      await createSubmission({
+      const result = await createSubmission({
+        clientRequestId: requestIdRef.current,
         studentId,
         courseWorldId,
         dayId,
@@ -266,7 +284,12 @@ export function ChatRoom({
 
       setCurrentSubmissionStatus("待老师审核");
       setCurrentSubmissionMeta(`${toDayLabel(dayId)} · ${toTimeLabel(timestamp)}`);
-      setSubmitFeedback("已提交到评审队列。");
+      setSubmitFeedback(
+        result.queue.status === "waiting_for_queue"
+          ? "作业已保存，评审队列暂不可用，等待系统恢复。"
+          : "已提交到评审队列。"
+      );
+      requestIdRef.current = null;
     } catch {
       setSubmitFeedback("提交失败，请稍后重试。");
     } finally {
@@ -318,8 +341,8 @@ export function ChatRoom({
           </div>
         ) : null}
 
-        {/* Submit Button (owner/guest only) */}
-        {viewerRole !== "teacher" ? (
+        {/* 只有房主且本地 Connector 在线时可以提交。 */}
+        {viewerRole === "owner" && canSubmit ? (
           <div>
             <div style={submitRowStyle}>
               <button
@@ -334,6 +357,8 @@ export function ChatRoom({
             </div>
             {submitFeedback ? <p role="status" style={feedbackTextStyle}>{submitFeedback}</p> : null}
           </div>
+        ) : viewerRole === "owner" ? (
+          <p style={feedbackTextStyle}>连接本地 Agent 并保持在线后，才可以提交今日作业。</p>
         ) : null}
 
         {/* Collaboration Guests */}

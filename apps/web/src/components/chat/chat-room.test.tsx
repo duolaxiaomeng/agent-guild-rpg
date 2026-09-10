@@ -45,6 +45,8 @@ function chatRoomResponse(messages: ChatMessage[]) {
     viewerRole: "owner" as const,
     studentId: "student-1",
     studentName: "Lin",
+    agentSessionId: "session-1",
+    canSubmit: true,
     agentLabel: "Claude Code",
     sessionStatus: "active" as const,
     sessionSummary: "",
@@ -114,7 +116,12 @@ describe("ChatRoom", () => {
         sessionSummary="已完成 README 更新、截图整理和提示词修正。"
         latestSubmissionStatus="待老师审核"
         latestSubmissionMeta="Day 1 · 2026-06-29 10:00"
+        studentId="student-1"
         roomId="room-chat-student-1"
+        courseWorldId="course-world-1"
+        dayId="day-1"
+        agentSessionId="session-1"
+        canSubmit
         accessGrants={[
           {
             id: "grant-1",
@@ -182,7 +189,8 @@ describe("ChatRoom", () => {
     vi.mocked(createSubmission).mockResolvedValue({
       submission: {
         id: "submission-2"
-      }
+      },
+      queue: { jobId: "review-submission-2", status: "queued" }
     });
 
     render(
@@ -193,7 +201,12 @@ describe("ChatRoom", () => {
         sessionStatusLabel="进行中"
         sessionSummary="已完成 README 更新、截图整理和提示词修正。"
         latestSubmissionStatus="今日未提交"
+        studentId="student-1"
         roomId="room-chat-student-1"
+        courseWorldId="course-world-1"
+        dayId="day-1"
+        agentSessionId="session-1"
+        canSubmit
         accessGrants={[]}
         collaborationGuests={[]}
         messages={[]}
@@ -207,6 +220,10 @@ describe("ChatRoom", () => {
       expect(createSubmission).toHaveBeenCalledWith(
         expect.objectContaining({
           studentId: "student-1",
+          clientRequestId: expect.stringMatching(/^chat-submit:/),
+          courseWorldId: "course-world-1",
+          dayId: "day-1",
+          agentSessionId: "session-1",
           triggerType: "button",
           conversationSummary: "已完成 README 更新、截图整理和提示词修正。",
           artifacts: [
@@ -233,7 +250,12 @@ describe("ChatRoom", () => {
         sessionStatusLabel="进行中"
         sessionSummary="已完成 README 更新、截图整理和提示词修正。"
         latestSubmissionStatus="今日未提交"
+        studentId="student-1"
         roomId="room-chat-student-1"
+        courseWorldId="course-world-1"
+        dayId="day-1"
+        agentSessionId="session-1"
+        canSubmit
         accessGrants={[]}
         collaborationGuests={[]}
         messages={[]}

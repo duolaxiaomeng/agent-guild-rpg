@@ -18,6 +18,11 @@ export function officeFootDepth(footY: number): number {
   return 100 + Math.round(footY);
 }
 
+export function formatLobbyClock(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 export function buildOfficeZoneVisualManifest() {
   return {
     lobby: [
@@ -138,7 +143,13 @@ function drawLobby(scene: Scene, sx: number, sy: number) {
   const cards = [
     { x: 354, title: "TODAY", value: "DAY 03", color: 0x38bdf8 },
     { x: 502, title: "ONLINE", value: "12 AGENTS", color: 0x22c55e },
-    { x: 650, title: "NEXT", value: "REVIEW 16:00", color: 0xf59e0b },
+    {
+      x: 650,
+      title: "LOCAL TIME",
+      value: formatLobbyClock(),
+      color: 0xf59e0b,
+      realtime: true,
+    },
   ];
   for (const card of cards) {
     wg.fillStyle(0x1e293b, 1);
@@ -146,7 +157,14 @@ function drawLobby(scene: Scene, sx: number, sy: number) {
     wg.fillStyle(card.color, 1);
     wg.fillRect(card.x + 8, wallTop + 8, 4, 40);
     text(scene, wall, card.x + 70, wallTop + 18, card.title, 9, "#94a3b8");
-    text(scene, wall, card.x + 70, wallTop + 37, card.value, 11);
+    const valueLabel = text(scene, wall, card.x + 70, wallTop + 37, card.value, 11);
+    if (card.realtime) {
+      scene.time.addEvent({
+        delay: 1000,
+        loop: true,
+        callback: () => valueLabel.setText(formatLobbyClock()),
+      });
+    }
   }
 
   const floor = layer(scene, OFFICE_ZONE_DEPTHS.floor + 1, sx, sy);

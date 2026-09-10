@@ -7,10 +7,29 @@ import { AgentConnectorPanel } from "../components/agent/agent-connector-panel";
 import { StudentClassroomBanner } from "../components/classroom/student-classroom-banner";
 import { WebsiteLotteryPanel } from "../components/website-lottery/website-lottery-panel";
 import { getActiveClassroomSafe } from "../lib/api-client";
+import type { ZoneId } from "../components/world/zone-config";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
+const WORLD_ZONES = new Set<ZoneId>([
+  "lobby",
+  "workstations",
+  "collab-room",
+  "review-station",
+]);
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ zone?: string }>;
+}) {
+  const resolvedSearchParams: { zone?: string } = searchParams
+    ? await searchParams
+    : {};
+  const requestedZone = resolvedSearchParams.zone as ZoneId | undefined;
+  const initialZone = requestedZone && WORLD_ZONES.has(requestedZone)
+    ? requestedZone
+    : "lobby";
   const result = await getServerSession();
   const token = result.status === "authenticated" ? result.session.token : undefined;
   const [{ data, degraded }, questsResult] = await Promise.all([
@@ -29,7 +48,7 @@ export default async function HomePage() {
     <main style={{ overflow: "hidden", background: "#070d1c" }}>
       <SessionBanner />
       <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <WorldShell />
+        <WorldShell initialZone={initialZone} />
         <header className="guild-topbar">
           <div className="guild-mark" aria-hidden="true">AG</div>
           <div>
@@ -37,43 +56,52 @@ export default async function HomePage() {
             <p className="guild-title">星港学习世界</p>
           </div>
           <span className="guild-live-pill"><span aria-hidden="true" /> LIVE · 学期 01</span>
-          <nav className="guild-main-nav" aria-label="主导航">
-            <a href="/guilds">工会</a>
-            <a href="/agent-team">Agent 战队</a>
-            <a href="/teacher">老师工作台</a>
-          </nav>
         </header>
-        <aside className="mission-rail" aria-label="今日任务概览">
-          <div className="mission-rail__head">
+        <details className="mission-rail" aria-label="今日任务概览" open>
+          <summary
+            aria-controls="mission-rail-body"
+            aria-label={`收起或展开第 ${Math.max(data.currentDay, 1)} 天行动`}
+            className="mission-rail__head"
+            role="button"
+          >
             <div>
               <p className="mission-rail__eyebrow">TODAY'S RUN</p>
               <h2>第 {Math.max(data.currentDay, 1)} 天行动</h2>
             </div>
-            <span className="mission-rail__level">LV.{Math.max(data.currentDay, 1)}</span>
-          </div>
-          <div className="mission-rail__stats">
-            <div><b>{onlineHomesteadCount}</b><span>在线成员</span></div>
-            <div><b>{completedQuestCount}</b><span>已完成</span></div>
-            <div><b>{quests.length}</b><span>总任务</span></div>
-          </div>
-          {activeQuest ? (
-            <div className="mission-card mission-card--active">
-              <span className="mission-card__status">● 当前任务</span>
-              <strong>{activeQuest.title}</strong>
-              <p>{activeQuest.description ?? "完成今日挑战，解锁下一块世界区域。"}</p>
+            <div className="mission-rail__head-actions">
+              <span className="mission-rail__level">LV.{Math.max(data.currentDay, 1)}</span>
+              <span className="mission-rail__toggle" aria-hidden="true">
+                <span className="mission-rail__toggle-expanded">收起</span>
+                <span className="mission-rail__toggle-collapsed">展开</span>
+                <span className="mission-rail__toggle-icon">⌃</span>
+              </span>
             </div>
-          ) : (
-            <div className="mission-card mission-card--empty">
-              <span className="mission-card__status">○ 等待同步</span>
-              <strong>任务日志暂未加载</strong>
-              <p>进入课程或稍后刷新，继续你的 Agent 训练。</p>
+          </summary>
+          <div className="mission-rail__body" id="mission-rail-body">
+            <div className="mission-rail__stats">
+              <div><b>{onlineHomesteadCount}</b><span>在线成员</span></div>
+              <div><b>{completedQuestCount}</b><span>已完成</span></div>
+              <div><b>{quests.length}</b><span>总任务</span></div>
             </div>
-          )}
-          <div className="mission-rail__links">
-            <a href="/chat">打开世界频道 <span>↗</span></a>
-            <a href="/guilds">查看工会排行 <span>↗</span></a>
+            {activeQuest ? (
+              <div className="mission-card mission-card--active">
+                <span className="mission-card__status">● 当前任务</span>
+                <strong>{activeQuest.title}</strong>
+                <p>{activeQuest.description ?? "完成今日挑战，解锁下一块世界区域。"}</p>
+              </div>
+            ) : (
+              <div className="mission-card mission-card--empty">
+                <span className="mission-card__status">○ 等待同步</span>
+                <strong>任务日志暂未加载</strong>
+                <p>进入课程或稍后刷新，继续你的 Agent 训练。</p>
+              </div>
+            )}
+            <div className="mission-rail__links">
+              <a href="/chat">打开世界频道 <span>↗</span></a>
+              <a href="/guilds">查看工会排行 <span>↗</span></a>
+            </div>
           </div>
-        </aside>
+        </details>
         <section
           aria-label="主城区概览"
           className="student-world-brand"
@@ -173,10 +201,10 @@ export default async function HomePage() {
           </div>
         ) : null}
         {result.status === "authenticated" && result.session.user.role === "student" ? (
-          <>
-            <AgentConnectorPanel dayId={`day-${Math.max(data.currentDay, 1)}`} />
-            <WebsiteLotteryPanel dayId={`day-${Math.max(data.currentDay, 1)}`} />
-          </>
+          <AgentConnectorPanel dayId={`day-${Math.max(data.currentDay, 1)}`} />
+        ) : null}
+        {result.status === "authenticated" ? (
+          <WebsiteLotteryPanel dayId={`day-${Math.max(data.currentDay, 1)}`} />
         ) : null}
         <InsightPanel />
       </div>

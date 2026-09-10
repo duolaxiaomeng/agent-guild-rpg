@@ -1,5 +1,10 @@
-import { T, ZONE_DEFS, type ZoneDef, type AgentDef, type NpcDef } from "./zone-config";
+import { T, ZONE_DEFS, type ZoneDef, type AgentDef, type NpcDef, type ZoneId } from "./zone-config";
 import { buildCharacterRenderSpec } from "./workstations-characters";
+import {
+  CHARACTER_WALK_FRAME_MS,
+  nextCharacterWalkFrame,
+  resolveCharacterWalkPose,
+} from "./character-motion";
 import {
   WORKSTATION_DEPTHS,
   buildWorkstationModelManifest,
@@ -8,6 +13,7 @@ import {
   resolveWorkstationCharacterKey,
   resolveSeatedDeskScale,
   workstationRoleFromOutfit,
+  type CharacterFacing,
   type DeskRole,
   type WorkstationModelSpec,
   type WorkstationRole,
@@ -22,6 +28,17 @@ import {
   drawDedicatedOfficeZone,
   officeFootDepth,
 } from "./office-zone-visuals";
+import type {
+  AvatarMoveAck,
+  AvatarMoveCommand,
+  AvatarMovement,
+} from "contracts";
+import { WORKSTATION_HOME_BY_VISUAL_ROLE } from "contracts";
+import {
+  findWorkstationPath,
+  fromCanonicalWorkstationPoint,
+  toCanonicalWorkstationPoint,
+} from "./workstation-pathfinding";
 
 export const PIXEL_WORLD_MOUNT_ID = "pixel-world";
 
@@ -45,9 +62,198 @@ export type AgentAvatarState = {
   displayName: string;
   status: AvatarStatus;
   currentZone: string;
-  lastActiveAt: string;
+  lastActiveAt: string | null;
   activitySummary: string;
+  ownerRole?: "teacher" | "student";
+  agentRole?: string | null;
+  visualRole?: WorkstationRole | null;
+  position?: {
+    zone: "workstations";
+    x: number;
+    y: number;
+    facing: CharacterFacing;
+    revision: number;
+    updatedAt: string;
+  };
+  movementLocked?: boolean;
+  movementLockReason?: "task_running" | "reviewing" | null;
 };
+
+export type AvatarMoveRequestSender = (
+  command: AvatarMoveCommand,
+  onAck: (ack: AvatarMoveAck) => void,
+) => void;
+
+const AGENT_ROLE_LABELS: Record<string, string> = {
+  ta: "助教",
+  reviewer: "评审",
+  mentor: "答疑",
+  qa: "测试专家",
+  "philosophy-design-mentor": "设计导师",
+  "software-architect": "软件架构师",
+  "deployment-release": "部署发布",
+  "frontend-developer": "前端开发",
+  "backend-developer": "后端开发",
+  "operations-architect": "运维架构",
+};
+
+function formatAgentLabel(avatar: AgentAvatarState | undefined, fallback: string) {
+  if (!avatar?.displayName) return fallback;
+  if (avatar.ownerRole === "teacher") return `${avatar.displayName} · 老师 Agent`;
+  const roleLabel = avatar.agentRole ? AGENT_ROLE_LABELS[avatar.agentRole] : undefined;
+  return roleLabel ? `${avatar.displayName} · ${roleLabel}` : avatar.displayName;
+}
+
+export function shouldRenderOnlineAvatar(avatar: AgentAvatarState | undefined) {
+  return Boolean(avatar && avatar.status !== "offline");
+}
+
+const CONNECTED_AGENT_FALLBACKS: Record<ZoneId, AgentDef> = {
+  lobby: {
+    id: "lobby-agent-slot",
+    label: "Agent",
+    badgeNum: 1,
+    x: 370,
+    y: 360,
+    tooltip: "已进入工作室大厅",
+    shirtColor: "#2563eb",
+    hairColor: "#312e81",
+    pose: "standing",
+    facing: "down",
+    archetype: "lead",
+    outfit: "navy-lead",
+  },
+  workstations: {
+    id: "workstation-agent-slot",
+    label: "Agent",
+    badgeNum: 1,
+    x: 430,
+    y: 260,
+    tooltip: "已进入工位区",
+    shirtColor: "#2563eb",
+    hairColor: "#312e81",
+    pose: "standing",
+    facing: "down",
+    archetype: "maker",
+    outfit: "blue-shirt",
+  },
+  "collab-room": {
+    id: "collab-agent-slot",
+    label: "Agent",
+    badgeNum: 1,
+    x: 360,
+    y: 360,
+    tooltip: "已进入协作区",
+    shirtColor: "#2563eb",
+    hairColor: "#312e81",
+    pose: "standing",
+    facing: "right",
+    archetype: "maker",
+    outfit: "blue-shirt",
+  },
+  "review-station": {
+    id: "review-agent-slot",
+    label: "Agent",
+    badgeNum: 1,
+    x: 360,
+    y: 360,
+    tooltip: "已进入评审区",
+    shirtColor: "#2563eb",
+    hairColor: "#312e81",
+    pose: "standing",
+    facing: "right",
+    archetype: "maker",
+    outfit: "blue-shirt",
+  },
+};
+
+const OUTFIT_BY_VISUAL_ROLE: Partial<Record<WorkstationRole, AgentDef["outfit"]>> = {
+  browser: "blue-shirt",
+  coder: "green-jacket",
+  files: "purple-shirt",
+  ops: "orange-jacket",
+  lead: "navy-lead",
+};
+
+export function buildZoneAgentRoster(
+  zone: ZoneDef,
+  avatars: AgentAvatarState[] = [],
+  controlledAgentId?: string,
+): AgentDef[] {
+  const visible = avatars
+    .filter(
+      (avatar) =>
+        shouldRenderOnlineAvatar(avatar) && avatar.currentZone === zone.id,
+    );
+  const connected = (zone.id === "workstations"
+    ? visible.filter(
+        (avatar) =>
+          avatar.studentId === controlledAgentId
+          && Boolean(avatar.agentRole)
+          && Boolean(avatar.visualRole)
+          && Boolean(avatar.position),
+      )
+    : visible)
+    .sort((left, right) =>
+      Number(right.studentId === controlledAgentId) -
+      Number(left.studentId === controlledAgentId),
+    );
+  if (connected.length === 0) return [];
+
+  const templates = zone.agents.length > 0
+    ? zone.agents
+    : [CONNECTED_AGENT_FALLBACKS[zone.id]];
+
+  return connected.map((avatar, index) => {
+    const matchingOutfit = avatar.visualRole
+      ? OUTFIT_BY_VISUAL_ROLE[avatar.visualRole]
+      : undefined;
+    const template = matchingOutfit
+      ? templates.find((candidate) => candidate.outfit === matchingOutfit)
+        ?? templates[index % templates.length]
+      : templates[index % templates.length];
+    const row = Math.floor(index / templates.length);
+    const controlled = avatar.studentId === controlledAgentId;
+    const persistedPosition = zone.id === "workstations"
+      ? avatar.position
+      : undefined;
+    return {
+      ...template,
+      id: `connected-agent-${avatar.studentId}`,
+      studentId: avatar.studentId,
+      label: avatar.displayName,
+      badgeNum: index + 1,
+      x: persistedPosition?.x ?? template.x + row * 34,
+      y: persistedPosition?.y ?? template.y + row * 28,
+      tooltip: avatar.activitySummary || template.tooltip,
+      outfit: avatar.visualRole
+        ? OUTFIT_BY_VISUAL_ROLE[avatar.visualRole] ?? template.outfit
+        : template.outfit,
+      facing: persistedPosition?.facing ?? template.facing,
+      ...(controlled
+        ? {
+            seated: false,
+            pose: "standing" as const,
+            routeId: undefined,
+            homeNodeId: undefined,
+            roleBehavior: undefined,
+          }
+        : {}),
+    };
+  });
+}
+
+export function resolveControlledDestination(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  return {
+    x: Math.min(Math.max(x, 36), Math.max(36, width - 36)),
+    y: Math.min(Math.max(y, 88), Math.max(88, height - 48)),
+  };
+}
 
 /** Status → aura colour (hex number for Phaser Graphics). */
 const STATUS_AURA_COLOR: Record<AvatarStatus, number> = {
@@ -110,6 +316,8 @@ export function buildWorldPostBoot(initialSceneKey: string) {
 /** Stored visual references for a single agent avatar (enables incremental updates). */
 type AgentRefRecord = {
   agentIndex: number;
+  originX: number;
+  originY: number;
   container: Phaser.GameObjects.Container;
   aura: Phaser.GameObjects.Graphics | null;
   label: Phaser.GameObjects.Text;
@@ -117,9 +325,11 @@ type AgentRefRecord = {
   currentStatus: AvatarStatus;
   sprite?: Phaser.GameObjects.Image;
   role?: WorkstationRole;
+  facing?: CharacterFacing;
   visualState?: WorkstationVisualState;
   walkFrame?: number;
   workstation?: WorkstationModelRef;
+  lastRevision?: number;
 };
 
 type WorkstationOccupancy = "empty" | "occupied-idle" | "occupied-active";
@@ -882,23 +1092,67 @@ function applyWorkstationSpriteState(
   state: WorkstationVisualState,
   walkFrame = 0,
   seatedPlacement?: Pick<ReturnType<typeof resolveWorkstationPlacement>, "characterHeight" | "seatedSpriteX" | "seatedSpriteY">,
+  facing: CharacterFacing = "left",
 ) {
-  const key = resolveWorkstationCharacterKey(role, state, walkFrame);
+  const walkPose = resolveCharacterWalkPose(walkFrame);
+  const key = resolveWorkstationCharacterKey(
+    role,
+    state,
+    state === "walking" ? walkFrame : 0,
+    facing,
+  );
   if (scene.textures.exists(key)) sprite.setTexture(key);
 
   scene.tweens.killTweensOf(sprite);
-  sprite.setAngle(0).setAlpha(1).setOrigin(0.5, 0.92);
+  sprite.setAlpha(1).setOrigin(0.5, 0.92);
   const seated = state === "seated-idle" || state === "seated-active";
   const targetHeight = seated ? seatedPlacement?.characterHeight ?? 72 : 74;
   const sourceRatio = sprite.width / sprite.height;
   sprite.setDisplaySize(targetHeight * sourceRatio, targetHeight);
-  sprite.setPosition(
-    seated ? seatedPlacement?.seatedSpriteX ?? 0 : 0,
-    seated ? seatedPlacement?.seatedSpriteY ?? 22 : 18,
-  );
+  const baseX = seated ? seatedPlacement?.seatedSpriteX ?? 0 : 0;
+  const baseY = seated ? seatedPlacement?.seatedSpriteY ?? 22 : 18;
+
+  if (state === "walking") {
+    // Keep the route container upright and ease the small body shift instead
+    // of snapping between walk poses every 160ms.  The two supplied pixel
+    // textures are reused, while the y/angle interpolation creates a softer
+    // four-phase stride without making the character wobble excessively.
+    const targetAngle = walkPose.angle * 0.42;
+    sprite.setX(baseX);
+    scene.tweens.add({
+      targets: sprite,
+      y: baseY + walkPose.yOffset,
+      angle: targetAngle,
+      duration: Math.round(CHARACTER_WALK_FRAME_MS * 0.85),
+      ease: "Sine.easeInOut",
+    });
+    return;
+  }
+
+  sprite.setPosition(baseX, baseY).setAngle(0);
 
   if (state === "seated-idle") {
-    scene.tweens.add({ targets: sprite, y: 21, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    scene.tweens.add({
+      targets: sprite,
+      y: baseY - 1,
+      angle: 0.18,
+      duration: 1700,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+    return;
+  }
+  if (state === "standing") {
+    scene.tweens.add({
+      targets: sprite,
+      y: baseY - 1,
+      angle: -0.16,
+      duration: 1900,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
     return;
   }
   if (state !== "seated-active") return;
@@ -912,7 +1166,33 @@ function applyWorkstationSpriteState(
     staff: { y: 21, duration: 900 },
     visitor: { y: 21, duration: 1000 },
   }[role];
-  scene.tweens.add({ targets: sprite, ...motion, yoyo: true, repeat: -1, ease: "Steps" });
+  scene.tweens.add({
+    targets: sprite,
+    ...motion,
+    yoyo: true,
+    repeat: -1,
+    ease: "Sine.easeInOut",
+  });
+}
+
+function addCharacterGroundShadow(
+  scene: Phaser.Scene,
+  container: Phaser.GameObjects.Container,
+  width = 34,
+  y = 21,
+) {
+  const shadow = scene.add.ellipse(0, y, width, 8, 0x020617, 0.2);
+  container.add(shadow);
+  scene.tweens.add({
+    targets: shadow,
+    scaleX: 0.9,
+    alpha: 0.14,
+    duration: 900,
+    yoyo: true,
+    repeat: -1,
+    ease: "Sine.easeInOut",
+  });
+  return shadow;
 }
 
 /* ------------------------------------------------------------------ */
@@ -960,10 +1240,21 @@ function applyRouteFacing(
   container: Phaser.GameObjects.Container,
   from: WorkstationsWalkNode,
   to: WorkstationsWalkNode,
+  onFacing?: (facing: "left" | "right" | "up" | "down") => void,
 ) {
   const facing = getFacingBetween(from, to);
-  const scale = Math.max(Math.abs(container.scaleX), Math.abs(container.scaleY), 0.01);
-  container.setScale(facing === "left" ? -scale : scale, scale);
+  const scaleX = Math.max(Math.abs(container.scaleX), 0.01);
+  const scaleY = Math.max(Math.abs(container.scaleY), 0.01);
+  // The sprite itself handles horizontal facing via flipX.  Rotating the
+  // whole container made the characters lean dramatically while walking and
+  // looked like they were sliding around corners.
+  container.setAngle(0);
+  if (onFacing) {
+    container.setScale(scaleX, scaleY);
+    onFacing(facing);
+    return;
+  }
+  container.setScale(facing === "left" ? -scaleX : scaleX, scaleY);
 }
 
 function startRouteLoop(
@@ -973,6 +1264,7 @@ function startRouteLoop(
   graph?: WorkstationsWalkGraph,
   onWalkFrame?: (frame: number) => void,
   onMove?: () => void,
+  onFacing?: (facing: "left" | "right" | "up" | "down") => void,
 ) {
   if (!graph || !actor.routeId) return false;
 
@@ -984,11 +1276,11 @@ function startRouteLoop(
   let walkFrame = 0;
   container.setPosition(nodes[0].x, nodes[0].y);
   scene.time.addEvent({
-    delay: 180,
+    delay: CHARACTER_WALK_FRAME_MS,
     loop: true,
     callback: () => {
       if (!moving) return;
-      walkFrame = walkFrame === 0 ? 1 : 0;
+      walkFrame = nextCharacterWalkFrame(walkFrame);
       onWalkFrame?.(walkFrame);
     },
   });
@@ -1001,7 +1293,7 @@ function startRouteLoop(
     const speed = actor.walkSpeed ?? 42;
     const duration = Math.max(520, (distance / speed) * 1000);
 
-    applyRouteFacing(container, from, to);
+    applyRouteFacing(container, from, to, onFacing);
     moving = true;
     onWalkFrame?.(walkFrame);
     scene.tweens.add({
@@ -1009,8 +1301,7 @@ function startRouteLoop(
       x: to.x,
       y: to.y,
       duration,
-      ease: "Sine.easeInOut",
-      hold: 500,
+      ease: "Linear",
       onUpdate: onMove,
       onComplete: () => {
         moving = false;
@@ -1020,7 +1311,10 @@ function startRouteLoop(
     });
   };
 
-  scene.time.delayedCall(6000, playNextSegment);
+  // Let the scene finish its first layout pass, then start the patrol quickly
+  // so the alternating forward/back foot poses are visible instead of leaving
+  // the NPC frozen in the standing frame for several seconds.
+  scene.time.delayedCall(900, playNextSegment);
   return true;
 }
 
@@ -1029,6 +1323,7 @@ type AgentRouteHooks = {
   onState: (state: WorkstationVisualState, walkFrame?: number) => void;
   onHome: (status: AvatarStatus) => void;
   onMove: () => void;
+  onFacing?: (facing: "left" | "right" | "up" | "down") => void;
 };
 
 function startAgentRouteCycle(
@@ -1048,11 +1343,11 @@ function startAgentRouteCycle(
   let moving = false;
   container.setPosition(nodes[0].x, nodes[0].y);
   scene.time.addEvent({
-    delay: 180,
+    delay: CHARACTER_WALK_FRAME_MS,
     loop: true,
     callback: () => {
       if (!moving) return;
-      walkFrame = walkFrame === 0 ? 1 : 0;
+      walkFrame = nextCharacterWalkFrame(walkFrame);
       hooks.onState("walking", walkFrame);
     },
   });
@@ -1072,7 +1367,7 @@ function startAgentRouteCycle(
       return;
     }
     hooks.onState("standing");
-    scene.time.delayedCall(350, () => moveSegment(0));
+    scene.time.delayedCall(240, () => moveSegment(0));
   };
 
   const moveSegment = (index: number) => {
@@ -1083,7 +1378,7 @@ function startAgentRouteCycle(
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
     const speed = actor.walkSpeed ?? 42;
     const duration = Math.max(520, (distance / speed) * 1000);
-    applyRouteFacing(container, from, to);
+    applyRouteFacing(container, from, to, hooks.onFacing);
     moving = true;
     hooks.onState("walking", walkFrame);
     scene.tweens.add({
@@ -1091,7 +1386,7 @@ function startAgentRouteCycle(
       x: to.x,
       y: to.y,
       duration,
-      ease: "Sine.easeInOut",
+      ease: "Linear",
       onUpdate: hooks.onMove,
       onComplete: () => {
         moving = false;
@@ -1104,7 +1399,7 @@ function startAgentRouteCycle(
           return;
         }
         hooks.onState("standing");
-        const pause = 1200 + (coordinator.getDelayMs(actor.id, cycle + index) % 801);
+        const pause = 420 + (coordinator.getDelayMs(actor.id, cycle + index) % 481);
         scene.time.delayedCall(pause, () => moveSegment(index + 1));
       },
     });
@@ -1134,18 +1429,20 @@ function drawNPCs(
     const x = routeNodes[0]?.x ?? npc.x * sx;
     const y = routeNodes[0]?.y ?? npc.y * sy;
     const role = workstationRoleFromOutfit(visualNpc.outfit);
-    const textureKey = resolveWorkstationCharacterKey(role, "standing");
+    let currentFacing = visualNpc.facing ?? "down";
+    const textureKey = resolveWorkstationCharacterKey(role, "standing", 0, currentFacing);
     if (s.textures.exists(textureKey)) {
       const zoneId = walkGraph ? "workstations" : "office";
       const initialLayering = resolveActorLayering(zoneId, y, 48 * sy);
       const container = s.add.container(x, y);
       container.setDepth(initialLayering.actorDepth);
+      addCharacterGroundShadow(s, container, 32, 21);
       const sprite = s.add.image(0, 18, textureKey);
-      applyWorkstationSpriteState(s, sprite, role, "standing");
+      applyWorkstationSpriteState(s, sprite, role, "standing", 0, undefined, currentFacing);
       const characterScale = Math.min(sx, sy) * 0.9;
-      const facing = visualNpc.facing ?? "down";
       container.setScale(characterScale, characterScale);
-      sprite.setFlipX(facing === "left");
+      // The supplied pixel walk/standing art faces left by default.
+      sprite.setFlipX(currentFacing === "right");
       container.add(sprite);
       const indicator = s.add.text(18 * sx, -54 * sy, "💬", { fontSize: "14px" });
       indicator.setOrigin(0.5, 0.5);
@@ -1160,15 +1457,17 @@ function drawNPCs(
       });
       container.add(hitArea);
       const hasRoute = startRouteLoop(s, container, npc, walkGraph, (frame) => {
-        applyWorkstationSpriteState(s, sprite, role, "walking", frame);
+        applyWorkstationSpriteState(s, sprite, role, "walking", frame, undefined, currentFacing);
       }, () => {
         const layering = resolveActorLayering(zoneId, container.y, 48 * sy);
         container.setDepth(layering.actorDepth);
         nameLabel.setPosition(container.x, layering.labelY);
+      }, (nextFacing) => {
+        currentFacing = nextFacing;
+        // The supplied side-view art faces left by default.
+        sprite.setFlipX(nextFacing === "right");
       });
-      if (!hasRoute) {
-        s.tweens.add({ targets: sprite, y: 16, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-      }
+      if (!hasRoute) container.setAngle(0);
       continue;
     }
     const nc = hex(npc.color);
@@ -1554,8 +1853,9 @@ function drawAgents(
     const agent = agents[i];
     const avatar = avatars?.find((a) => a.studentId === agent.studentId);
 
-    // Skip offline agents when avatar data is present
-    if (avatar && avatar.status === "offline") {
+    // Public spaces are strict: a character is rendered only when the backend
+    // confirms an authenticated, currently connected user.
+    if (!shouldRenderOnlineAvatar(avatar)) {
       continue;
     }
 
@@ -1570,9 +1870,10 @@ function drawAgents(
     const routeNodes = walkGraph ? resolveRouteNodes(walkGraph, visualAgent) : [];
     const x = routeNodes[0]?.x ?? agent.x * sx;
     const y = routeNodes[0]?.y ?? agent.y * sy;
-    const role = workstationRoleFromOutfit(visualAgent.outfit);
+    const role = avatar?.visualRole ?? workstationRoleFromOutfit(visualAgent.outfit);
     const initialState = resolveWorkstationVisualState(status, "home");
-    const textureKey = resolveWorkstationCharacterKey(role, "standing");
+    let currentFacing: CharacterFacing = visualAgent.facing ?? "down";
+    const textureKey = resolveWorkstationCharacterKey(role, "standing", 0, currentFacing);
     const workstation = getWorkstationModelMap(s.game)[agent.id];
     if (walkGraph && renderAsDeskAgent && workstation && s.textures.exists(textureKey)) {
       const initialLayering = resolveActorLayering(zoneDef.id, y, 58 * sy);
@@ -1581,10 +1882,12 @@ function drawAgents(
         : null;
       const container = s.add.container(x, y);
       container.setDepth(initialLayering.actorDepth);
+      addCharacterGroundShadow(s, container, 34, 22);
       const sprite = s.add.image(0, 18, textureKey);
-      applyWorkstationSpriteState(s, sprite, role, initialState, 0, workstation.placement);
+      applyWorkstationSpriteState(s, sprite, role, initialState, 0, workstation.placement, currentFacing);
       const characterScale = Math.min(sx, sy);
       container.setScale(resolveSeatedDeskScale(characterScale), characterScale);
+      sprite.setFlipX(currentFacing === "right");
       container.add(sprite);
       container.setVisible(status !== "offline");
 
@@ -1600,13 +1903,15 @@ function drawAgents(
       numText.setOrigin(0.5, 0.5);
       container.add(numText);
 
-      const labelText = avatar?.displayName ?? agent.label;
+      const labelText = formatAgentLabel(avatar, agent.label);
       const labelObj = strokeText(s, x, initialLayering.labelY, labelText, "13px", 0.5, 1);
       labelObj.setDepth(initialLayering.bubbleDepth);
       const refsMap = getAgentRefsMap(s.game);
       if (!refsMap[zoneDef.id]) refsMap[zoneDef.id] = {};
       const refRecord: AgentRefRecord = {
         agentIndex: i,
+        originX: x,
+        originY: y,
         container,
         aura,
         label: labelObj,
@@ -1614,9 +1919,11 @@ function drawAgents(
         currentStatus: status,
         sprite,
         role,
+        facing: currentFacing,
         visualState: initialState,
         walkFrame: 0,
         workstation,
+        lastRevision: avatar?.position?.revision,
       };
       refsMap[zoneDef.id][avatar?.studentId ?? agent.id] = refRecord;
       const hasRoute = motionCoordinator
@@ -1627,7 +1934,7 @@ function drawAgents(
               container.setVisible(true);
               refRecord.visualState = state;
               refRecord.walkFrame = frame;
-              applyWorkstationSpriteState(s, sprite, role, state, frame, workstation.placement);
+              applyWorkstationSpriteState(s, sprite, role, state, frame, workstation.placement, currentFacing);
             },
             onHome: (homeStatus) => {
               refRecord.currentStatus = homeStatus;
@@ -1640,7 +1947,9 @@ function drawAgents(
               refRecord.visualState = state;
               container.setVisible(true);
               container.setScale(resolveSeatedDeskScale(container.scaleX), Math.abs(container.scaleY));
-              applyWorkstationSpriteState(s, sprite, role, state, 0, workstation.placement);
+              container.setAngle(0);
+              sprite.setFlipX(currentFacing === "right");
+              applyWorkstationSpriteState(s, sprite, role, state, 0, workstation.placement, currentFacing);
               setWorkstationOccupancy(s, workstation, occupiedStateForStatus(homeStatus));
             },
             onMove: () => {
@@ -1649,6 +1958,11 @@ function drawAgents(
               labelObj.setPosition(container.x, layering.labelY);
               aura?.setPosition(container.x - x, container.y - y);
             },
+            onFacing: (nextFacing) => {
+              currentFacing = nextFacing;
+              refRecord.facing = nextFacing;
+              sprite.setFlipX(nextFacing === "right");
+            },
           })
         : false;
       if (!hasRoute) {
@@ -1656,7 +1970,7 @@ function drawAgents(
       }
       continue;
     }
-    if (zoneDef.id !== "workstations" && s.textures.exists(textureKey)) {
+    if ((!renderAsDeskAgent || zoneDef.id !== "workstations") && s.textures.exists(textureKey)) {
       const layering = resolveActorLayering(zoneDef.id, y, 34 * sy);
       const aura = avatar
         ? drawStatusAura(s, x, y, status, layering.auraDepth)
@@ -1664,9 +1978,35 @@ function drawAgents(
       const container = s.add.container(x, y);
       container.setDepth(layering.actorDepth);
       container.setScale(Math.min(sx, sy) * 0.9);
+      addCharacterGroundShadow(s, container, 32, 22);
       const sprite = s.add.image(0, 18, textureKey);
-      applyWorkstationSpriteState(s, sprite, role, "standing");
-      sprite.setFlipX(visualAgent.facing === "left");
+      const home = role in WORKSTATION_HOME_BY_VISUAL_ROLE
+        ? WORKSTATION_HOME_BY_VISUAL_ROLE[
+            role as keyof typeof WORKSTATION_HOME_BY_VISUAL_ROLE
+          ]
+        : undefined;
+      const atHome = Boolean(
+        home
+        && avatar?.position
+        && Math.hypot(
+          avatar.position.x - home.x,
+          avatar.position.y - home.y,
+        ) < 1,
+      );
+      const standaloneInitialState: WorkstationVisualState =
+        zoneDef.id === "workstations" && atHome
+          ? initialState
+          : "standing";
+      applyWorkstationSpriteState(
+        s,
+        sprite,
+        role,
+        standaloneInitialState,
+        0,
+        undefined,
+        currentFacing,
+      );
+      sprite.setFlipX(currentFacing === "right");
       container.add(sprite);
 
       const badge = s.add.graphics();
@@ -1681,7 +2021,7 @@ function drawAgents(
       badgeText.setOrigin(0.5, 0.5);
       container.add(badgeText);
 
-      const labelText = avatar?.displayName ?? agent.label;
+      const labelText = formatAgentLabel(avatar, agent.label);
       const labelObj = strokeText(s, x, layering.labelY, labelText, "13px", 0.5, 1);
       labelObj.setDepth(layering.bubbleDepth);
       const bubbleText = avatar ? STATUS_BUBBLE_TEXT[status] : null;
@@ -1698,14 +2038,14 @@ function drawAgents(
           repeat: -1,
           ease: "Sine.easeInOut",
         });
-      } else {
-        s.tweens.add({ targets: sprite, y: 17, duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
       }
 
       const refsMap = getAgentRefsMap(s.game);
       if (!refsMap[zoneDef.id]) refsMap[zoneDef.id] = {};
       refsMap[zoneDef.id][avatar?.studentId ?? agent.id] = {
         agentIndex: i,
+        originX: x,
+        originY: y,
         container,
         aura,
         label: labelObj,
@@ -1713,7 +2053,9 @@ function drawAgents(
         currentStatus: status,
         sprite,
         role,
-        visualState: "standing",
+        facing: currentFacing,
+        visualState: standaloneInitialState,
+        lastRevision: avatar?.position?.revision,
       };
       continue;
     }
@@ -1853,7 +2195,7 @@ function drawAgents(
     }
 
     // Label — use avatar display name if available (scene coords, not scaled)
-    const labelText = avatar?.displayName ?? agent.label;
+    const labelText = formatAgentLabel(avatar, agent.label);
     const labelObj = strokeText(s, x, y - 40 * CHAR_SCALE, labelText, "14px", 0.5, 1);
 
     // Tooltip — use avatar activity summary if available (scene coords)
@@ -1875,6 +2217,8 @@ function drawAgents(
     const agentKey = avatar?.studentId ?? agent.id;
     refsMap[zoneDef.id][agentKey] = {
       agentIndex: i,
+      originX: x,
+      originY: y,
       container,
       aura,
       label: labelObj,
@@ -1975,6 +2319,17 @@ function updateAgentVisuals(
   const ref = sceneRefs[studentId];
   if (!ref) return;
 
+  if (
+    zoneDef.id === "workstations"
+    && (newStatus === "working" || newStatus === "reviewing")
+    && ref.currentStatus !== "working"
+    && ref.currentStatus !== "reviewing"
+  ) {
+    // A real task/review lock supersedes any client-side route immediately.
+    // The following private avatar:movement event starts the system route home.
+    scene.tweens.killTweensOf(ref.container);
+  }
+
   const agent = zoneDef.agents[ref.agentIndex];
   if (!agent) return;
 
@@ -2014,8 +2369,8 @@ function updateAgentVisuals(
   const vh = scene.scale.height;
   const sx = vw / 960;
   const sy = vh / 540;
-  const x = agent.x * sx;
-  const y = agent.y * sy;
+  const x = ref.container.x || agent.x * sx;
+  const y = ref.container.y || agent.y * sy;
   const layering = resolveActorLayering(zoneDef.id, y, 46 * CHAR_SCALE);
 
   // Update aura colour
@@ -2023,9 +2378,11 @@ function updateAgentVisuals(
     ref.aura.destroy();
   }
   ref.aura = drawStatusAura(scene, x, y, newStatus, layering.auraDepth);
+  ref.originX = x;
+  ref.originY = y;
 
   // Update label text
-  const displayName = avatar?.displayName ?? agent.label;
+  const displayName = formatAgentLabel(avatar, agent.label);
   ref.label.setText(displayName);
 
   // Update activity bubble only when status actually changed
@@ -2049,12 +2406,13 @@ function updateAgentVisuals(
   }
 
   ref.currentStatus = newStatus;
+  const currentFacing = ref.facing ?? agent.facing ?? "down";
   if (ref.workstation) {
     const state = resolveWorkstationVisualState(newStatus, "home");
     ref.visualState = state;
     ref.container.setScale(resolveSeatedDeskScale(ref.container.scaleX), Math.abs(ref.container.scaleY));
     if (ref.sprite && ref.role) {
-      applyWorkstationSpriteState(scene, ref.sprite, ref.role, state, 0, ref.workstation?.placement);
+      applyWorkstationSpriteState(scene, ref.sprite, ref.role, state, 0, ref.workstation?.placement, currentFacing);
     }
     setWorkstationOccupancy(scene, ref.workstation, occupiedStateForStatus(newStatus));
   } else if (ref.sprite && ref.role) {
@@ -2062,7 +2420,7 @@ function updateAgentVisuals(
       ? resolveWorkstationVisualState(newStatus, "home")
       : "standing";
     ref.visualState = state;
-    applyWorkstationSpriteState(scene, ref.sprite, ref.role, state);
+    applyWorkstationSpriteState(scene, ref.sprite, ref.role, state, 0, undefined, currentFacing);
   }
 }
 
@@ -2940,6 +3298,230 @@ function drawReplicatedWorkstationsScene(scene: Phaser.Scene, zone: ZoneDef, vw:
   drawWorkstation(scene, layout.focusDesk.x * sx, layout.focusDesk.y * sy, zone.agents.find((agent) => agent.id === "focus-agent"));
 }
 
+let avatarMoveCommandSequence = 0;
+
+function applyAvatarMovement(
+  scene: Phaser.Scene,
+  zone: ZoneDef,
+  movement: AvatarMovement,
+) {
+  if (zone.id !== "workstations") return;
+  const ref = getAgentRefsMap(scene.game)[zone.id]?.[movement.studentId];
+  if (!ref) return;
+  if (
+    typeof ref.lastRevision === "number"
+    && movement.revision <= ref.lastRevision
+  ) return;
+  ref.lastRevision = movement.revision;
+
+  const avatars =
+    (scene.game.registry.get("agent-avatars") as AgentAvatarState[] | undefined)
+    ?? [];
+  scene.game.registry.set(
+    "agent-avatars",
+    avatars.map((avatar) =>
+      avatar.studentId === movement.studentId
+        ? {
+            ...avatar,
+            position: {
+              zone: "workstations" as const,
+              x: movement.targetX,
+              y: movement.targetY,
+              facing: movement.facing,
+              revision: movement.revision,
+              updatedAt: movement.updatedAt,
+            },
+          }
+        : avatar,
+    ),
+  );
+
+  const start = toCanonicalWorkstationPoint(
+    { x: ref.container.x, y: ref.container.y },
+    scene.scale.width,
+    scene.scale.height,
+  );
+  const destination = { x: movement.targetX, y: movement.targetY };
+  const route = findWorkstationPath(start, destination);
+  let canonicalPoints = route?.points ?? [start, destination];
+  if (movement.source === "system") {
+    const finalPoint = canonicalPoints.at(-1);
+    if (
+      !finalPoint
+      || Math.hypot(
+        finalPoint.x - destination.x,
+        finalPoint.y - destination.y,
+      ) > 0.5
+    ) {
+      canonicalPoints = [...canonicalPoints, destination];
+    }
+  }
+  const points = canonicalPoints
+    .slice(1)
+    .map((point) => fromCanonicalWorkstationPoint(
+      point,
+      scene.scale.width,
+      scene.scale.height,
+    ));
+
+  scene.tweens.killTweensOf(ref.container);
+  animatePathSegment(scene, zone, ref, points, 0, movement.facing);
+}
+
+function animatePathSegment(
+  scene: Phaser.Scene,
+  zone: ZoneDef,
+  ref: AgentRefRecord,
+  points: Array<{ x: number; y: number }>,
+  index: number,
+  finalFacing: CharacterFacing,
+) {
+  const destination = points[index];
+  if (!destination) {
+    ref.facing = finalFacing;
+    const finalState = ref.currentStatus === "working" || ref.currentStatus === "reviewing"
+      ? "seated-active"
+      : "standing";
+    ref.visualState = finalState;
+    if (ref.sprite && ref.role) {
+      ref.sprite.setFlipX(finalFacing === "right");
+      applyWorkstationSpriteState(
+        scene,
+        ref.sprite,
+        ref.role,
+        finalState,
+        0,
+        undefined,
+        finalFacing,
+      );
+    }
+    return;
+  }
+
+  const dx = destination.x - ref.container.x;
+  const dy = destination.y - ref.container.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 0.5) {
+    animatePathSegment(scene, zone, ref, points, index + 1, finalFacing);
+    return;
+  }
+  const nextFacing: CharacterFacing = Math.abs(dx) >= Math.abs(dy)
+    ? dx >= 0 ? "right" : "left"
+    : dy >= 0 ? "down" : "up";
+  ref.facing = nextFacing;
+  ref.visualState = "walking";
+  if (ref.sprite && ref.role) {
+    ref.sprite.setFlipX(nextFacing === "right");
+    applyWorkstationSpriteState(
+      scene,
+      ref.sprite,
+      ref.role,
+      "walking",
+      index % 2,
+      undefined,
+      nextFacing,
+    );
+  }
+
+  scene.tweens.add({
+    targets: ref.container,
+    x: destination.x,
+    y: destination.y,
+    duration: Math.max(70, (distance / 150) * 1000),
+    ease: "Linear",
+    onUpdate: () => updateMovingAgentLayering(zone, ref),
+    onComplete: () => {
+      updateMovingAgentLayering(zone, ref);
+      animatePathSegment(scene, zone, ref, points, index + 1, finalFacing);
+    },
+  });
+}
+
+function updateMovingAgentLayering(zone: ZoneDef, ref: AgentRefRecord) {
+  const layering = resolveActorLayering(zone.id, ref.container.y, 58);
+  ref.container.setDepth(layering.actorDepth);
+  ref.label.setPosition(ref.container.x, layering.labelY);
+  ref.aura?.setPosition(
+    ref.container.x - ref.originX,
+    ref.container.y - ref.originY,
+  );
+  if (ref.bubble) {
+    ref.bubble.label.setPosition(ref.container.x, ref.container.y - 58);
+    ref.bubble.bg.setPosition(
+      ref.container.x - ref.originX,
+      ref.container.y - ref.originY,
+    );
+  }
+}
+
+function enableControlledAgentPointAndClick(
+  scene: Phaser.Scene,
+  zone: ZoneDef,
+  controlledAgentId?: string,
+) {
+  if (!controlledAgentId || zone.id !== "workstations") return;
+
+  const ref = getAgentRefsMap(scene.game)[zone.id]?.[controlledAgentId];
+  if (!ref) return;
+
+  const onPointerDown = (
+    pointer: Phaser.Input.Pointer,
+    currentlyOver: Phaser.GameObjects.GameObject[] = [],
+  ) => {
+    // NPC hit areas and in-canvas controls own their clicks. React HUD controls
+    // are outside the canvas and therefore never reach this handler.
+    if (currentlyOver.length > 0) return;
+    const avatar = (
+      (scene.game.registry.get("agent-avatars") as AgentAvatarState[] | undefined)
+      ?? []
+    ).find((item) => item.studentId === controlledAgentId);
+    if (
+      avatar?.movementLocked
+      || avatar?.status === "working"
+      || avatar?.status === "reviewing"
+    ) return;
+
+    const requestedTarget = toCanonicalWorkstationPoint(
+      { x: pointer.worldX, y: pointer.worldY },
+      scene.scale.width,
+      scene.scale.height,
+    );
+    const start = toCanonicalWorkstationPoint(
+      { x: ref.container.x, y: ref.container.y },
+      scene.scale.width,
+      scene.scale.height,
+    );
+    const route = findWorkstationPath(start, requestedTarget);
+    if (!route || Math.hypot(
+      route.target.x - start.x,
+      route.target.y - start.y,
+    ) < 2) return;
+
+    const send = scene.game.registry.get("avatar-move-sender") as
+      | AvatarMoveRequestSender
+      | undefined;
+    if (!send) return;
+    avatarMoveCommandSequence += 1;
+    send(
+      {
+        commandId: `avatar-move-${Date.now()}-${avatarMoveCommandSequence}`,
+        targetX: route.target.x,
+        targetY: route.target.y,
+      },
+      (ack) => {
+        if (ack.accepted) {
+          scene.game.registry.events.emit("avatar-movement", ack.movement);
+        }
+      },
+    );
+  };
+
+  scene.input.on("pointerdown", onPointerDown);
+  scene.events.once("shutdown", () => {
+    scene.input.off("pointerdown", onPointerDown);
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /*  Zone scene create                                                  */
 /* ------------------------------------------------------------------ */
@@ -2950,6 +3532,15 @@ function createSceneContent(
 ) {
   const vw = scene.scale.width;
   const vh = scene.scale.height;
+  const avatarData =
+    (scene.game.registry.get("agent-avatars") as AgentAvatarState[] | undefined) ?? [];
+  const controlledAgentId = scene.game.registry.get("controlled-agent-id") as
+    | string
+    | undefined;
+  const runtimeZone: ZoneDef = {
+    ...zone,
+    agents: buildZoneAgentRoster(zone, avatarData, controlledAgentId),
+  };
   const workstationsWalkGraph =
     zone.id === "workstations" ? buildWorkstationsWalkGraph(vw, vh) : undefined;
   const motionCoordinator =
@@ -3006,7 +3597,7 @@ function createSceneContent(
   // -- Workstations (for workstations zone) --
   if (zone.id === "workstations") {
     ensureWorkstationTextures(scene);
-    drawReplicatedWorkstationsScene(scene, zone, vw, vh);
+    drawReplicatedWorkstationsScene(scene, runtimeZone, vw, vh);
   }
 
   // -- Landmarks (Graphics API) --
@@ -3030,19 +3621,17 @@ function createSceneContent(
   drawNPCs(scene, zone.npcs, vw, vh, workstationsWalkGraph);
 
   // -- Agents (Graphics API with ID badges and dynamic avatar states) --
-  const avatarData = scene.game?.registry?.get("agent-avatars") as
-    | AgentAvatarState[]
-    | undefined;
   drawAgents(
     scene,
-    zone.agents,
+    runtimeZone.agents,
     vw,
     vh,
-    zone,
+    runtimeZone,
     avatarData,
     workstationsWalkGraph,
     motionCoordinator,
   );
+  enableControlledAgentPointAndClick(scene, runtimeZone, controlledAgentId);
 
   // -- Particles --
   createParticles(scene, zone, vw);
@@ -3057,6 +3646,8 @@ function createSceneContent(
       "24px",
     );
   }
+
+  return runtimeZone;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3087,7 +3678,7 @@ function createZoneScene(Phaser: PhaserModule, zoneDef: ZoneDef) {
     }
 
     create() {
-      createSceneContent(this, zoneDef);
+      const runtimeZone = createSceneContent(this, zoneDef);
 
       // Listen for real-time agent status updates from the WebSocket layer.
       // Incrementally update only the changed agent's visuals (no scene restart).
@@ -3108,17 +3699,28 @@ function createZoneScene(Phaser: PhaserModule, zoneDef: ZoneDef) {
         game.registry.set("agent-avatars", updated);
 
         // Incremental update: only update the specific agent's visuals
-        if (game.scene.isActive(sceneKey) && payload.studentId !== "__refresh__") {
+        if (game.scene.isActive(sceneKey) && payload.studentId === "__refresh__") {
+          this.scene.restart();
+          return;
+        }
+        if (game.scene.isActive(sceneKey)) {
           updateAgentVisuals(
             game.scene.getScene(sceneKey) as Phaser.Scene,
             payload.studentId,
             payload.status as AvatarStatus,
-            zoneDef,
+            runtimeZone,
           );
         }
       };
 
       game.registry.events.on("agent-state-changed", onAgentStateChanged);
+      const onAvatarMovement = (payload: AvatarMovement) => {
+        if (!game.scene.isActive(sceneKey)) return;
+        const controlledAgentId = game.registry.get("controlled-agent-id");
+        if (payload.studentId !== controlledAgentId) return;
+        applyAvatarMovement(this, runtimeZone, payload);
+      };
+      game.registry.events.on("avatar-movement", onAvatarMovement);
 
       let viewport = { width: this.scale.width, height: this.scale.height };
       let resizeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -3138,6 +3740,7 @@ function createZoneScene(Phaser: PhaserModule, zoneDef: ZoneDef) {
         if (resizeTimer) clearTimeout(resizeTimer);
         this.scale.off("resize", onResize);
         game.registry.events.off("agent-state-changed", onAgentStateChanged);
+        game.registry.events.off("avatar-movement", onAvatarMovement);
       });
     }
   };

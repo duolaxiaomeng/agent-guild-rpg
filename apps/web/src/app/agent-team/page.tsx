@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { AgentTeamPanel, type AgentTeamMember } from "../../components/agent-team/agent-team-panel";
+import { StudentAgentAssignments } from "../../components/agent-team/student-agent-assignments";
 import { SessionBanner } from "../../components/auth/session-banner";
-import { getAgentTeamCatalogSafe } from "../../lib/api-client";
+import { getAgentTeamBindingSafe, getAgentTeamCatalogSafe, getAgentTeamRosterSafe, getMyAgentAssignmentsSafe } from "../../lib/api-client";
 import { getServerSession } from "../../lib/server-session";
 
 export const dynamic = "force-dynamic";
@@ -36,16 +37,31 @@ export default async function AgentTeamPage() {
     );
   }
 
-  const { data: catalog, degraded } = await getAgentTeamCatalogSafe(result.session.token);
+  const [
+    { data: catalog, degraded: catalogDegraded },
+    { data: bindingPayload, degraded: bindingDegraded },
+    { data: onlineMembers, degraded: rosterDegraded },
+    { data: assignedRuns, degraded: assignmentsDegraded },
+  ] = await Promise.all([
+    getAgentTeamCatalogSafe(result.session.token),
+    getAgentTeamBindingSafe(result.session.token),
+    getAgentTeamRosterSafe(result.session.token),
+    result.session.user.role === "student"
+      ? getMyAgentAssignmentsSafe(result.session.token)
+      : Promise.resolve({ data: [], degraded: false }),
+  ]);
+  const binding = bindingPayload.binding;
   const agents: AgentTeamMember[] = catalog.roles.map((role) => ({
     id: role.roleKey,
     name: role.name,
     icon: ROLE_ICONS[role.roleKey] ?? "AI",
     responsibility: role.description,
     capabilities: role.capabilities,
-    status: "online",
-    concurrentTasks: 0
+    status: binding?.roleKey === role.roleKey ? "online" : "idle",
+    concurrentTasks: 0,
+    visualRole: role.visualRole,
   }));
+  const degraded = catalogDegraded || bindingDegraded || rosterDegraded || assignmentsDegraded;
 
   return (
     <main style={pageStyle} data-scrollable="true">
@@ -58,9 +74,9 @@ export default async function AgentTeamPage() {
           </div>
           <span style={eyebrowStyle}>AGENT GUILD / ROLE DIRECTORY</span>
           <h1 style={titleStyle}>全局 Agent 战队</h1>
-          <p style={subtitleStyle}>选择角色、分配职责，再让多个 Agent 并行完成同一个 Day 任务。</p>
+          <p style={subtitleStyle}>本地 Agent 接入时自主选择角色；老师分配职责后，再并行完成同一个 Day 任务。</p>
           <div style={flowStyle} aria-label="Agent 协作流程">
-            <FlowStep index="01" label="选择角色" />
+            <FlowStep index="01" label="Agent 自主选角" />
             <span aria-hidden="true" style={flowArrowStyle}>→</span>
             <FlowStep index="02" label="分配职责" />
             <span aria-hidden="true" style={flowArrowStyle}>→</span>
@@ -68,7 +84,20 @@ export default async function AgentTeamPage() {
           </div>
         </header>
         {degraded ? <p role="status" style={warningStyle}><span aria-hidden="true">!</span> Agent 战队服务暂不可达，当前显示空目录。</p> : null}
-        <AgentTeamPanel agents={agents} defaultExpanded />
+        <AgentTeamPanel
+          agents={agents}
+          defaultExpanded
+          token={result.session.user.role === "student" ? result.session.token : undefined}
+          initialBinding={binding}
+          canBind={result.session.user.role === "student"}
+          onlineMembers={onlineMembers}
+        />
+        {result.session.user.role === "student" ? (
+          <StudentAgentAssignments
+            initialRuns={assignedRuns}
+            token={result.session.token}
+          />
+        ) : null}
       </div>
     </main>
   );

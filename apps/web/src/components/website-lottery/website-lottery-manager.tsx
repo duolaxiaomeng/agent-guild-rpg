@@ -17,6 +17,13 @@ import {
 
 type WebsiteLotteryDifficultyFilter = "all" | WebsiteLotteryDifficulty;
 
+export type WebsiteLotteryDay = {
+  id: string;
+  dayId?: string;
+  title?: string;
+  status?: string;
+};
+
 const difficultyFilterLabels: Record<WebsiteLotteryDifficultyFilter, string> = {
   all: "全部",
   easy: "简单",
@@ -24,7 +31,8 @@ const difficultyFilterLabels: Record<WebsiteLotteryDifficultyFilter, string> = {
   hard: "较难"
 };
 
-export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
+export function WebsiteLotteryManager({ dayId, days = [] }: { dayId: string; days?: WebsiteLotteryDay[] }) {
+  const [selectedDayId, setSelectedDayId] = useState(dayId);
   const [options, setOptions] = useState<WebsiteLotteryOption[]>([]);
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
@@ -36,10 +44,23 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
   useEffect(() => {
     const session = loadSession();
     if (!session) return;
-    void getWebsiteLottery(dayId, session.token)
+    void getWebsiteLottery(selectedDayId, session.token)
       .then((payload) => setOptions(payload.options))
       .catch(() => setMessage("抽奖配置暂不可达。"));
+  }, [selectedDayId]);
+
+  useEffect(() => {
+    setSelectedDayId(dayId);
   }, [dayId]);
+
+  function selectDay(nextDayId: string) {
+    setSelectedDayId(nextDayId);
+    setOptions([]);
+    setEditingOptionId(null);
+    setLabel("");
+    setDescription("");
+    setMessage(null);
+  }
 
   function hasOption(optionLabel: string) {
     return options.some((item) => item.label === optionLabel);
@@ -59,6 +80,7 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
       return visibleOptions.length > 0 ? { ...category, options: visibleOptions } : null;
     })
     .filter((category): category is (typeof websiteLotteryBankCategories)[number] => category !== null);
+  const selectedDayLabel = selectedDayId.replace(/^day-/i, "DAY ");
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -67,8 +89,8 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
     try {
       const existing = options.find((item) => item.id === editingOptionId);
       const option = existing
-        ? await updateWebsiteLotteryOption(dayId, existing.id, { label, description, isActive: existing.isActive, sortOrder: existing.sortOrder }, session.token)
-        : await createWebsiteLotteryOption(dayId, { label, description, sortOrder: options.length + 1 }, session.token);
+        ? await updateWebsiteLotteryOption(selectedDayId, existing.id, { label, description, isActive: existing.isActive, sortOrder: existing.sortOrder }, session.token)
+        : await createWebsiteLotteryOption(selectedDayId, { label, description, sortOrder: options.length + 1 }, session.token);
       setOptions((current) => existing
         ? current.map((item) => item.id === option.id ? option : item)
         : [...current, option]);
@@ -93,7 +115,7 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
     setMessage(null);
     try {
       const created = await createWebsiteLotteryOption(
-        dayId,
+        selectedDayId,
         {
           label: option.label,
           description: option.description,
@@ -114,7 +136,7 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
     const session = loadSession();
     if (!session) return;
     try {
-      const updated = await updateWebsiteLotteryOption(dayId, option.id, { ...option, isActive: !option.isActive }, session.token);
+      const updated = await updateWebsiteLotteryOption(selectedDayId, option.id, { ...option, isActive: !option.isActive }, session.token);
       setOptions((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch {
       setMessage("更新失败，请稍后重试。" );
@@ -125,7 +147,7 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
     const session = loadSession();
     if (!session) return;
     try {
-      await deleteWebsiteLotteryOption(dayId, optionId, session.token);
+      await deleteWebsiteLotteryOption(selectedDayId, optionId, session.token);
       setOptions((current) => current.filter((item) => item.id !== optionId));
     } catch {
       setMessage("已有学生抽到的选项不能删除，请改为停用。" );
@@ -134,9 +156,20 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
 
   return (
     <section style={managerStyle} aria-labelledby="lottery-manager-title">
-      <span style={managerEyebrow}>DAY 01 / AGENT SETUP</span>
-      <h2 id="lottery-manager-title" style={{ margin: "5px 0 10px" }}>Agent 网站类型抽奖池</h2>
-      <p style={bankHintStyle}>先从系统分类题库里挑选，再用下面的表单补充老师自定义题目。当前期里已被选定的题目不会重复出现，未被选中的题目会继续留在池子里。</p>
+      <span style={managerEyebrow}>{selectedDayLabel} / WEBSITE SETUP</span>
+      <h2 id="lottery-manager-title" style={{ margin: "5px 0 10px" }}>网站类型抽奖池</h2>
+      {days.length > 0 ? (
+        <label style={dayBindingStyle}>
+          <span>绑定到课程 Day</span>
+          <select aria-label="抽奖绑定 Day" value={selectedDayId} onChange={(event) => selectDay(event.target.value)} style={dayBindingSelectStyle}>
+            {days.map((day) => {
+              const value = day.dayId ?? day.id;
+              return <option key={value} value={value}>{value.replace(/^day-/i, "Day ")}{day.title ? ` · ${day.title}` : ""}</option>;
+            })}
+          </select>
+        </label>
+      ) : null}
+      <p style={bankHintStyle}>先选择要绑定的 Day，再从系统分类题库或下面的表单加入网站类型。抽奖配置只会出现在当前绑定的 Day，其他 Day 不会显示。</p>
       <div style={difficultyBarStyle} role="group" aria-label="题库难度筛选">
         {(Object.keys(difficultyFilterLabels) as WebsiteLotteryDifficultyFilter[]).map((level) => (
           <button
@@ -214,6 +247,8 @@ export function WebsiteLotteryManager({ dayId }: { dayId: string }) {
 
 const managerStyle = { marginTop: 20, padding: 16, borderRadius: 7, border: "1px solid rgba(250,204,21,.28)", background: "rgba(78,52,10,.22)", color: "#f8fafc" };
 const managerEyebrow = { color: "#fde68a", fontSize: 10, fontWeight: 800, letterSpacing: ".14em" };
+const dayBindingStyle = { display: "grid", gap: 6, margin: "10px 0 12px", color: "#fff7cc", fontSize: 12, fontWeight: 700 };
+const dayBindingSelectStyle = { width: "100%", padding: "8px 10px", border: "1px solid rgba(253,230,138,.35)", borderRadius: 4, background: "#1f2937", color: "#fff", fontSize: 13 };
 const managerButtonStyle = { width: "fit-content", padding: "7px 10px", border: "1px solid #fcd34d", borderRadius: 4, background: "#a16207", color: "white", cursor: "pointer" };
 const bankHintStyle = { margin: "8px 0 12px", color: "#fef3c7", fontSize: 12, lineHeight: 1.5 };
 const bankGridStyle = { display: "grid", gap: 10, marginBottom: 14 };

@@ -1,7 +1,13 @@
 "use client";
 
 import { CSSProperties, useEffect, useState } from "react";
-import { decideReview, type DecideReviewPayload } from "../../lib/api-client";
+import { useRouter } from "next/navigation";
+import {
+  decideReview,
+  getSubmissionDetail,
+  type DecideReviewPayload,
+  type SubmissionDetail
+} from "../../lib/api-client";
 import { loadSession } from "../../lib/session";
 
 type ReviewQueueSummary = {
@@ -18,11 +24,11 @@ type ReviewQueueItem = {
   guildName: string;
   dayLabel: string;
   decisionLabel: string;
-  reviewStatus?: "queued" | "ai_reviewed" | "teacher_decided";
+  reviewStatus?: "queued" | "ai_reviewed" | "needs_teacher" | "teacher_decided";
   isPendingTeacherDecision: boolean;
   finalScore: number | null;
-  suggestedScore: number | null;
-  decision: "approve" | "adjust" | "reject" | null;
+  suggestedScore?: number | null;
+  decision?: "approve" | "adjust" | "reject" | null;
   submittedAtLabel: string;
   rationale: string;
 };
@@ -30,6 +36,7 @@ type ReviewQueueItem = {
 type ReviewQueueProps = {
   summary: ReviewQueueSummary;
   items: ReviewQueueItem[];
+  pagination?: { page: number; pageSize: number; total: number };
 };
 
 type LocalReviewQueueItem = ReviewQueueItem & {
@@ -45,10 +52,17 @@ type LocalReviewQueueState = {
   items: LocalReviewQueueItem[];
 };
 
-export function ReviewQueue({ summary, items }: ReviewQueueProps) {
+export function ReviewQueue({
+  summary,
+  items,
+  pagination = { page: 1, pageSize: 50, total: items.length }
+}: ReviewQueueProps) {
+  const router = useRouter();
   const [pendingSubmissionId, setPendingSubmissionId] = useState<string | null>(null);
   const [queueState, setQueueState] = useState(() => createLocalQueueState(summary, items));
   const [actionFeedback, setActionFeedback] = useState<Record<string, string>>({});
+  const [details, setDetails] = useState<Record<string, SubmissionDetail>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     setQueueState(createLocalQueueState(summary, items));
@@ -59,7 +73,7 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
     decision: DecideReviewPayload["decision"]
   ) {
     const session = loadSession();
-    const finalScore = getNextFinalScore(item.suggestedScore, item.currentFinalScore, decision);
+    const finalScore = getNextFinalScore(item.suggestedScore ?? null, item.currentFinalScore, decision);
 
     if (!session) {
       setActionFeedback((current) => ({
@@ -98,15 +112,13 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
           };
         });
 
-        return {
-          summary: deriveSummary(nextItems, current.summary.reviewedToday + 1),
-          items: nextItems
-        };
+        return { summary: current.summary, items: nextItems };
       });
       setActionFeedback((current) => ({
         ...current,
         [item.submissionId]: "老师裁定已同步。"
       }));
+      router.refresh();
     } catch {
       setActionFeedback((current) => ({
         ...current,
@@ -114,6 +126,31 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
       }));
     } finally {
       setPendingSubmissionId(null);
+    }
+  }
+
+  async function handleDetail(submissionId: string) {
+    if (details[submissionId]) {
+      setDetails((current) => {
+        const next = { ...current };
+        delete next[submissionId];
+        return next;
+      });
+      return;
+    }
+    const session = loadSession();
+    if (!session) return;
+    setDetailLoadingId(submissionId);
+    try {
+      const detail = await getSubmissionDetail(submissionId, session.token);
+      setDetails((current) => ({ ...current, [submissionId]: detail }));
+    } catch {
+      setActionFeedback((current) => ({
+        ...current,
+        [submissionId]: "作业详情加载失败，请稍后重试。"
+      }));
+    } finally {
+      setDetailLoadingId(null);
     }
   }
 
@@ -218,6 +255,12 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
 
               <div style={decisionRowStyle}>
                 <DecisionButton
+                  label={details[item.submissionId] ? "收起作业" : "查看作业"}
+                  color="#64b7ff"
+                  onClick={() => void handleDetail(item.submissionId)}
+                  disabled={detailLoadingId === item.submissionId}
+                />
+                <DecisionButton
                   label="通过"
                   color="#4ade80"
                   onClick={() => void handleDecision(item, "approve")}
@@ -237,6 +280,10 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
                 />
               </div>
 
+              {details[item.submissionId] ? (
+                <SubmissionDetailPanel detail={details[item.submissionId]} />
+              ) : null}
+
               {actionFeedback[item.submissionId] ? (
                 <p role="status" style={{ ...feedbackStyle, color: actionFeedback[item.submissionId].includes("失败") || actionFeedback[item.submissionId].includes("失效") ? "#ff9aa8" : "#8ce7d5" }}>
                   {actionFeedback[item.submissionId]}
@@ -252,7 +299,54 @@ export function ReviewQueue({ summary, items }: ReviewQueueProps) {
           </li>
         ) : null}
       </ul>
+      <nav aria-label="评审分页" style={{ display: "flex", justifyContent: "space-between", marginTop: 14 }}>
+        <a
+          href={`?reviewPage=${Math.max(1, pagination.page - 1)}`}
+          aria-disabled={pagination.page <= 1}
+          style={{ ...metadataChipStyle, pointerEvents: pagination.page <= 1 ? "none" : "auto", opacity: pagination.page <= 1 ? .45 : 1 }}
+        >
+          上一页
+        </a>
+        <span style={metadataChipStyle}>
+          第 {pagination.page} 页 · 共 {pagination.total} 份
+        </span>
+        <a
+          href={`?reviewPage=${pagination.page + 1}`}
+          aria-disabled={pagination.page * pagination.pageSize >= pagination.total}
+          style={{ ...metadataChipStyle, pointerEvents: pagination.page * pagination.pageSize >= pagination.total ? "none" : "auto", opacity: pagination.page * pagination.pageSize >= pagination.total ? .45 : 1 }}
+        >
+          下一页
+        </a>
+      </nav>
     </section>
+  );
+}
+
+function SubmissionDetailPanel({ detail }: { detail: SubmissionDetail }) {
+  return (
+    <div style={{ ...rationaleStyle, marginTop: 12 }}>
+      <strong style={{ color: "#fff" }}>作业内容</strong>
+      <p>提交时间：{detail.submission.timestamp}</p>
+      <p>会话摘要：{detail.submission.conversationSummary}</p>
+      <p>工作摘要：{detail.submission.workSummary}</p>
+      <p>个人复盘：{detail.submission.selfReflection}</p>
+      <ul>
+        {detail.submission.artifacts.map((artifact) => (
+          <li key={`${artifact.kind}-${artifact.url}`}>
+            <a href={artifact.url} target="_blank" rel="noreferrer">{artifact.label}</a>
+          </li>
+        ))}
+      </ul>
+      <p>Agent 事件证据：{detail.agentEvents.length} 条</p>
+      {detail.agentEvents.slice(0, 10).map((event) => (
+        <div key={event.eventId}>{event.type} · {event.occurredAt}</div>
+      ))}
+      <p>
+        评审记录：{detail.review
+          ? `${detail.review.status} · ${detail.review.rationale}`
+          : "尚未生成"}
+      </p>
+    </div>
   );
 }
 
@@ -313,7 +407,7 @@ function toLocalReviewQueueItems(items: ReviewQueueItem[]) {
         ...item,
       currentDecisionLabel: item.isPendingTeacherDecision ? "待老师裁定" : item.decisionLabel,
       currentFinalScore: item.finalScore,
-      currentDecision: item.decision,
+      currentDecision: item.decision ?? null,
       isPendingTeacherDecision: item.isPendingTeacherDecision,
       decidedAt: null as string | null
     };

@@ -55,9 +55,15 @@ export class WebsiteLotteryController {
   }
 
   @Post("days/:dayId/draw")
-  @ApiOperation({ summary: "学生抽取一次网站类型" })
+  @ApiOperation({ summary: "学生通过在线 Agent 抽取一次网站类型" })
   draw(@Param("dayId") dayId: string, @CurrentUser() user: LotteryUser) {
     return this.service.draw(dayId, user);
+  }
+
+  @Post("days/:dayId/redraw")
+  @ApiOperation({ summary: "学生通过在线 Agent 退回当前抽签并重新抽取" })
+  redraw(@Param("dayId") dayId: string, @CurrentUser() user: LotteryUser) {
+    return this.service.redraw(dayId, user);
   }
 
   @Post("days/:dayId/options")

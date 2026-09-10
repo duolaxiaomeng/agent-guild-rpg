@@ -9,6 +9,13 @@ function toRoleLabel(role: AuthUser["role"]) {
   return role === "teacher" ? "老师" : "学生";
 }
 
+function toUserLabel(user: AuthUser) {
+  const cohortLabel = user.role === "student" && user.cohort
+    ? ` · ${user.cohort.name}`
+    : "";
+  return `${user.displayName}（${toRoleLabel(user.role)}${cohortLabel}）`;
+}
+
 type BannerState =
   | { kind: "loading" }
   | { kind: "loaded"; session: AuthSession }
@@ -20,12 +27,12 @@ function toBannerText(state: BannerState): string {
     case "loading":
       return "登录状态确认中...";
     case "loaded":
-      return `${state.session.user.displayName}（${toRoleLabel(state.session.user.role)}）`;
+      return toUserLabel(state.session.user);
     case "guest":
       return "未登录";
     case "network-error":
       return state.lastSession
-        ? `${state.lastSession.user.displayName}（${toRoleLabel(state.lastSession.user.role)}）`
+        ? toUserLabel(state.lastSession.user)
         : "登录状态确认中...";
   }
 }

@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import os from "node:os";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
@@ -21,6 +22,19 @@ function validateProductionEnvironment() {
   }
 }
 
+function getDevelopmentAllowedOrigins() {
+  const origins = new Set(["http://localhost:3000", "http://localhost:3100"]);
+  for (const interfaces of Object.values(os.networkInterfaces())) {
+    for (const address of interfaces ?? []) {
+      if (address.family === "IPv4" && !address.internal) {
+        origins.add(`http://${address.address}:3000`);
+        origins.add(`http://${address.address}:3100`);
+      }
+    }
+  }
+  return [...origins];
+}
+
 async function bootstrap() {
   validateProductionEnvironment();
   const app = await NestFactory.create(AppModule);
@@ -28,7 +42,7 @@ async function bootstrap() {
   // R-012: Configure CORS with whitelist instead of allowing all origins
   const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim())
-    : ["http://localhost:3000", "http://localhost:3100"];
+    : getDevelopmentAllowedOrigins();
 
   app.enableCors({
     origin: allowedOrigins,
@@ -59,7 +73,7 @@ async function bootstrap() {
   // Keep the development default stable while allowing Playwright/CI to run
   // an isolated API instance alongside a developer's API on port 3001.
   const port = Number(process.env.PORT ?? 3001);
-  await app.listen(port);
+  await app.listen(port, "0.0.0.0");
 }
 
 void bootstrap();

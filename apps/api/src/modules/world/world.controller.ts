@@ -1,16 +1,22 @@
-import { Controller, Get, Inject, NotFoundException, UseGuards } from "@nestjs/common";
+import { Controller, Get, Inject, NotFoundException, Optional, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "../auth/auth.guard";
 import { PrismaService } from "../../prisma/prisma.service";
+import { PresenceService } from "../realtime/presence.service";
 
 @ApiTags("world")
 @ApiBearerAuth()
 @Controller("world")
 @UseGuards(AuthGuard)
 export class WorldController {
+  private readonly presence: PresenceService;
+
   constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService
-  ) {}
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(PresenceService) presence?: PresenceService
+  ) {
+    this.presence = presence ?? new PresenceService();
+  }
 
   @ApiOperation({ summary: "获取游戏世界信息", description: "返回当前课程世界状态，包括天数和所有玩家驻地信息" })
   @Get()
@@ -23,7 +29,9 @@ export class WorldController {
       throw new NotFoundException("Course world not found");
     }
 
-    const homesteads = await this.prisma.homestead.findMany({
+    const onlineUserIds = this.presence.onlineUserIds();
+    const homesteads = onlineUserIds.length === 0 ? [] : await this.prisma.homestead.findMany({
+      where: { ownerId: { in: onlineUserIds } },
       include: {
         owner: true
       },
@@ -37,7 +45,7 @@ export class WorldController {
         ownerId: homestead.ownerId,
         displayName: homestead.owner.displayName,
         location: "homestead",
-        isOnline: homestead.owner.isOnline
+        isOnline: true
       }))
     };
   }

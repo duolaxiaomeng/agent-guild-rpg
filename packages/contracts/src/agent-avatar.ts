@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { agentRoleSchema, agentVisualRoleSchema } from "./agent-team.js";
+import {
+  agentWorldPositionSchema,
+  avatarMovementLockReasonSchema,
+} from "./agent-world.js";
 
 /**
  * Agent avatar status enum.
@@ -34,8 +39,14 @@ export const agentAvatarSchema = z.object({
   displayName: z.string(),
   status: agentStatusSchema,
   currentZone: agentZoneSchema,
-  lastActiveAt: z.string(),
+  lastActiveAt: z.string().nullable(),
   activitySummary: z.string(),
+  ownerRole: z.enum(["teacher", "student"]).optional(),
+  agentRole: agentRoleSchema.nullable().optional(),
+  visualRole: agentVisualRoleSchema.nullable().optional(),
+  position: agentWorldPositionSchema.optional(),
+  movementLocked: z.boolean().optional(),
+  movementLockReason: avatarMovementLockReasonSchema.nullable().optional(),
 });
 
 export type AgentStatus = z.infer<typeof agentStatusSchema>;

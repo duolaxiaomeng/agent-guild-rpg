@@ -17,6 +17,17 @@ import { PrismaService } from "../../prisma/prisma.service";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DEFAULT_REGISTRATION_INTERNAL_CODE = "chuangshuo_agent_one";
+const DEFAULT_REGISTRATION_COHORT = {
+  id: "cohort-chuangshuo-agent-1",
+  name: "船说agent第一期班"
+} as const;
+
+type AuthSessionUser = {
+  id: string;
+  role: UserRole;
+  displayName: string;
+  cohort?: { id: string; name: string } | null;
+};
 
 export function hashSessionToken(rawToken: string) {
   return crypto.createHash("sha256").update(rawToken).digest("hex");
@@ -69,7 +80,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({
-      where: { email }
+      where: { email: email.trim().toLowerCase() },
+      include: {
+        cohort: { select: { id: true, name: true } }
+      }
     });
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -85,7 +99,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     password: string;
     registrationCode: string;
   }) {
-    if (!this.isValidRegistrationCode(input.registrationCode)) {
+    const registrationCohort = this.resolveRegistrationCohort(input.registrationCode);
+    if (!registrationCohort) {
       throw new ForbiddenException("Invalid registration code");
     }
 
@@ -103,15 +118,28 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     }
 
     const passwordHash = await bcrypt.hash(input.password, 12);
-    let user: { id: string; role: UserRole; displayName: string };
+    let user: AuthSessionUser;
     try {
       user = await this.prisma.$transaction(async (tx) => {
+        const cohort = await tx.studentCohort.upsert({
+          where: { id: registrationCohort.id },
+          update: {
+            isActive: true,
+            name: registrationCohort.name
+          },
+          create: {
+            id: registrationCohort.id,
+            isActive: true,
+            name: registrationCohort.name
+          }
+        });
         const createdUser = await tx.user.create({
           data: {
             role: UserRole.student,
             email: normalizedEmail,
             passwordHash,
-            displayName
+            displayName,
+            cohortId: cohort.id
           }
         });
         const homestead = await tx.homestead.create({
@@ -128,7 +156,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
             name: `${displayName} 的聊天室`
           }
         });
-        return createdUser;
+        return {
+          ...createdUser,
+          cohort: { id: cohort.id, name: cohort.name }
+        };
       });
     } catch (error) {
       if (
@@ -143,11 +174,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return this.createSession(user);
   }
 
-  private async createSession(user: {
-    id: string;
-    role: UserRole;
-    displayName: string;
-  }) {
+  private async createSession(user: AuthSessionUser) {
     // R-022: Generate raw token but store its SHA-256 hash
     const rawToken = `session_${crypto.randomBytes(32).toString("hex")}`;
     const session = await this.prisma.userSession.create({
@@ -165,20 +192,22 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       user: {
         id: user.id,
         role: user.role,
-        displayName: user.displayName
+        displayName: user.displayName,
+        cohort: user.cohort ?? null
       }
     };
   }
 
-  private isValidRegistrationCode(value: string) {
+  private resolveRegistrationCohort(value: string) {
     const expected = Buffer.from(
       process.env.REGISTRATION_INTERNAL_CODE ?? DEFAULT_REGISTRATION_INTERNAL_CODE
     );
     const provided = Buffer.from(value);
-    return (
+    const matches = (
       expected.length === provided.length &&
       crypto.timingSafeEqual(expected, provided)
     );
+    return matches ? DEFAULT_REGISTRATION_COHORT : null;
   }
 
   async getSession(rawToken: string) {
@@ -199,7 +228,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
           select: {
             id: true,
             role: true,
-            displayName: true
+            displayName: true,
+            cohort: {
+              select: { id: true, name: true }
+            }
           }
         }
       }
@@ -219,7 +251,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       user: {
         id: session.user.id,
         role: session.user.role,
-        displayName: session.user.displayName
+        displayName: session.user.displayName,
+        cohort: session.user.cohort
       }
     };
   }

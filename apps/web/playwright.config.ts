@@ -17,7 +17,10 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     baseURL: E2E_BASE_URL,
-    trace: "on-first-retry"
+    trace: "on-first-retry",
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+      : undefined
   },
   webServer: [
     {
@@ -29,7 +32,7 @@ export default defineConfig({
       timeout: 240_000
     },
     {
-      command: `NEXT_PUBLIC_API_BASE_URL=${E2E_API_URL} ALLOW_INSECURE_LOCALHOST=1 pnpm e2e:server`,
+      command: `NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_API_BASE_URL=${E2E_API_URL} ALLOW_INSECURE_LOCALHOST=1 pnpm e2e:server`,
       url: E2E_BASE_URL,
       reuseExistingServer: false,
       timeout: 240_000

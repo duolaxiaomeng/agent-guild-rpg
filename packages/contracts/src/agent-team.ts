@@ -19,6 +19,26 @@ export const agentRoleSchema = z.enum([
 
 export type AgentRole = z.infer<typeof agentRoleSchema>;
 
+/** Pixel-world role used to render a bound Agent identity. */
+export const agentVisualRoleSchema = z.enum([
+  "browser",
+  "coder",
+  "files",
+  "ops",
+  "lead",
+]);
+
+export type AgentVisualRole = z.infer<typeof agentVisualRoleSchema>;
+
+export const agentTeamBindingSchema = z.object({
+  studentId: idSchema,
+  roleKey: agentRoleSchema,
+  visualRole: agentVisualRoleSchema,
+  updatedAt: dateTimeSchema,
+});
+
+export type AgentTeamBinding = z.infer<typeof agentTeamBindingSchema>;
+
 /** Capability tags are intentionally shared across roles and tasks. */
 export const agentCapabilitySchema = z.enum([
   "teaching",

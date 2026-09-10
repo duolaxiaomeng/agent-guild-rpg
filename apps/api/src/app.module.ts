@@ -13,6 +13,7 @@ import { ChatController } from "./modules/chat/chat.controller";
 import { ChatService } from "./modules/chat/chat.service";
 import { ClassroomsModule } from "./modules/classrooms/classrooms.module";
 import { GuildsController } from "./modules/guilds/guilds.controller";
+import { GuildsService } from "./modules/guilds/guilds.service";
 import { AgentAvatarController } from "./modules/memory/agent-avatar/agent-avatar.controller";
 import { LearningInsightController } from "./modules/memory/learning-insight/learning-insight.controller";
 import { MemoryController } from "./modules/memory/memory.controller";
@@ -73,6 +74,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     AgentTeamService,
     AuthGuard,
     ChatService,
+    GuildsService,
     QuestsService,
     RoomsService,
     ReviewQueueService,

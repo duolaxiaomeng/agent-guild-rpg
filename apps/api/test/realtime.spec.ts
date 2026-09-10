@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { RealtimeGateway } from "../src/modules/realtime/realtime.gateway";
+import { PresenceService } from "../src/modules/realtime/presence.service";
 import { ReviewQueueService } from "../src/modules/queue/review.queue";
 
 describe("realtime gateway", () => {
@@ -26,6 +27,8 @@ describe("realtime gateway", () => {
         token: createHash("sha256").update("session-raw-token").digest("hex")
       }
     });
+    expect(client.join).toHaveBeenCalledWith("room-chat-student-1");
+    expect(client.join).toHaveBeenCalledWith("workstation:student-1");
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
@@ -56,6 +59,36 @@ describe("realtime gateway", () => {
       }
     });
     expect(client.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("keeps a user online until their last browser socket disconnects", async () => {
+    const findUnique = vi.fn().mockResolvedValue({
+      userId: "student-1",
+      expiresAt: new Date(Date.now() + 60_000)
+    });
+    const presence = new PresenceService();
+    const gateway = new RealtimeGateway({ userSession: { findUnique } } as never, presence);
+    const emit = vi.fn();
+    gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
+    const socket = (id: string) => ({
+      id,
+      handshake: { auth: { token: "session-raw-token" }, query: {} },
+      data: {},
+      join: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn()
+    }) as any;
+    const first = socket("socket-1");
+    const second = socket("socket-2");
+
+    await gateway.handleConnection(first);
+    await gateway.handleConnection(second);
+    gateway.handleDisconnect(first);
+    expect(presence.isOnline("student-1")).toBe(true);
+    gateway.handleDisconnect(second);
+
+    expect(presence.isOnline("student-1")).toBe(false);
+    expect(emit).toHaveBeenCalledWith("presence:update", expect.objectContaining({ state: "online" }));
+    expect(emit).toHaveBeenCalledWith("presence:update", expect.objectContaining({ state: "offline" }));
   });
 
   it("rejects a student from subscribing to another student's chat room", async () => {
@@ -134,6 +167,59 @@ describe("realtime gateway", () => {
       status: "working",
       currentZone: "workstations",
       activitySummary: "正在编码..."
+    });
+  });
+
+  it("routes accepted avatar movement only to the student's private workstation", async () => {
+    const movement = {
+      commandId: "move-1",
+      studentId: "student-1",
+      zone: "workstations" as const,
+      targetX: 468,
+      targetY: 282,
+      facing: "right" as const,
+      revision: 2,
+      source: "manual" as const,
+      updatedAt: "2026-07-15T08:00:00.000Z",
+    };
+    const agentWorld = {
+      moveAvatar: vi.fn().mockResolvedValue({ accepted: true, movement }),
+    };
+    const gateway = new RealtimeGateway(
+      {} as never,
+      undefined,
+      agentWorld as never,
+    );
+    const emit = vi.fn();
+    const to = vi.fn().mockReturnValue({ emit });
+    gateway.server = { to } as never;
+
+    await expect(
+      gateway.handleAvatarMove(
+        { commandId: "move-1", targetX: 468, targetY: 282 },
+        { data: { userId: "student-1" } } as never,
+      ),
+    ).resolves.toEqual({ accepted: true, movement });
+    expect(agentWorld.moveAvatar).toHaveBeenCalledWith("student-1", {
+      commandId: "move-1",
+      targetX: 468,
+      targetY: 282,
+    });
+    expect(to).toHaveBeenCalledWith("workstation:student-1");
+    expect(emit).toHaveBeenCalledWith("avatar:movement", movement);
+  });
+
+  it("rejects unauthenticated avatar movement", async () => {
+    const gateway = new RealtimeGateway({} as never);
+
+    await expect(
+      gateway.handleAvatarMove(
+        { commandId: "move-1", targetX: 468, targetY: 282 },
+        { data: {} } as never,
+      ),
+    ).resolves.toEqual({
+      accepted: false,
+      reason: "authentication_required",
     });
   });
 

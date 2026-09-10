@@ -7,8 +7,10 @@ x-api-image: &api-image
 x-api-environment: &api-environment
   NODE_ENV: production
   PORT: 3001
-  DATABASE_URL: file:/data/agent-guild-rpg.db
+  DATABASE_URL: postgresql://${POSTGRES_USER:-agent_guild}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the Docker env file}@postgres:5432/${POSTGRES_DB:-agent_guild}?schema=public
   REDIS_URL: redis://redis:6379
+  REVIEW_QUEUE_REQUIRED: "1"
+  REVIEW_WORKER_CONCURRENCY: ${REVIEW_WORKER_CONCURRENCY:-4}
   ALLOWED_ORIGINS: ${PUBLIC_WEB_ORIGIN:-http://localhost:3000}
   CONNECTOR_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
   CONNECTOR_CREDENTIAL_SIGNING_SECRET: ${CONNECTOR_CREDENTIAL_SIGNING_SECRET:?set CONNECTOR_CREDENTIAL_SIGNING_SECRET in the Docker env file}
@@ -18,6 +20,21 @@ x-api-environment: &api-environment
   ARK_MODEL: ${ARK_MODEL:-doubao-seed-2-1-turbo-260628}
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agent_guild}
+      POSTGRES_USER: ${POSTGRES_USER:-agent_guild}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the Docker env file}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_guild} -d ${POSTGRES_DB:-agent_guild}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped
@@ -39,9 +56,10 @@ services:
       - migrate
       - deploy
       - --schema
-      - apps/api/prisma/schema.prisma
-    volumes:
-      - api-data:/data
+      - apps/api/prisma/postgresql/schema.prisma
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   seed:
     <<: *api-image
@@ -52,8 +70,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    volumes:
-      - api-data:/data
 
   api:
     <<: *api-image
@@ -64,10 +80,10 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - "3001:3001"
-    volumes:
-      - api-data:/data
     healthcheck:
       test:
         - CMD-SHELL
@@ -76,6 +92,19 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  review-worker:
+    <<: *api-image
+    restart: unless-stopped
+    environment: *api-environment
+    command: ["node", "apps/api/dist/src/review-worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
 
   web:
     image: agent-guild-web:local
@@ -107,5 +136,5 @@ services:
       start_period: 10s
 
 volumes:
-  api-data:
+  postgres-data:
   redis-data:

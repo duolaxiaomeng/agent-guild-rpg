@@ -1,7 +1,12 @@
 import { CSSProperties } from "react";
 import Link from "next/link";
-import { getGuildListSafe } from "../../lib/api-client";
+import {
+  getGuildListSafe,
+  getGuildMembersSafe,
+  getMyGuildInvitationsSafe
+} from "../../lib/api-client";
 import { GuildPanel } from "../../components/guild/guild-panel";
+import { GuildWorkspace } from "../../components/guild/guild-workspace";
 import { SessionBanner } from "../../components/auth/session-banner";
 import { getServerSession } from "../../lib/server-session";
 
@@ -113,7 +118,23 @@ export default async function GuildsPage() {
   }
 
   const token = result.status === "authenticated" ? result.session.token : undefined;
-  const { data: guilds, degraded } = await getGuildListSafe(token);
+  const isStudent =
+    result.status === "authenticated" && result.session.user.role === "student";
+  const [guildResult, invitationResult] = await Promise.all([
+    getGuildListSafe(token),
+    isStudent && token
+      ? getMyGuildInvitationsSafe(token)
+      : Promise.resolve({ data: [], degraded: false })
+  ]);
+  const currentGuild = guildResult.data.find(
+    (guild) => guild.viewerMembership?.status === "active"
+  );
+  const memberResult =
+    isStudent && token && currentGuild
+      ? await getGuildMembersSafe(currentGuild.id, token)
+      : { data: [], degraded: false };
+  const degraded =
+    guildResult.degraded || invitationResult.degraded || memberResult.degraded;
 
   return (
     <main data-scrollable="true" style={pageStyle}>
@@ -137,7 +158,15 @@ export default async function GuildsPage() {
           </div>
         </div>
       ) : null}
-      <GuildPanel guilds={guilds} />
+      {isStudent && result.status === "authenticated" ? (
+        <GuildWorkspace
+          currentUserId={result.session.user.id}
+          guilds={guildResult.data}
+          invitations={invitationResult.data}
+          members={memberResult.data}
+        />
+      ) : null}
+      <GuildPanel guilds={guildResult.data} />
       <style>{`
         a[href="/"]:hover, a[href="/login"]:hover { filter: brightness(1.18); transform: translateY(-1px); }
         a[href="/"]:focus-visible, a[href="/login"]:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }

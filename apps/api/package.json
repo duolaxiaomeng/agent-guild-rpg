@@ -5,8 +5,13 @@
   "scripts": {
     "start:dev": "nest start --watch",
     "start": "node dist/src/main.js",
+    "start:postgres": "prisma generate --schema prisma/postgresql/schema.prisma && nest build && node dist/src/main.js",
+    "start:worker": "node dist/src/review-worker.js",
+    "start:worker:dev": "nest start --watch --entryFile review-worker",
     "build": "nest build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prisma:generate:sqlite": "prisma generate --schema prisma/schema.prisma",
+    "prisma:generate:postgres": "prisma generate --schema prisma/postgresql/schema.prisma"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

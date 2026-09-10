@@ -23,7 +23,11 @@ test("teacher advances a classroom and an assistant resolves student help", asyn
   } else {
     await expect(page.getByText("课堂进行中")).toBeVisible();
   }
-  await expect(page.getByText(/讲解|个人实践|互测|提交/)).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page
+      .getByRole("region", { name: "课堂指挥台" })
+      .getByText(/^(讲解|个人实践|互测|提交)$/)
+  ).toBeVisible({ timeout: 20_000 });
 
   const student = await browser.newPage();
   await login(student, "lin@academy.test", "student-pass-123");

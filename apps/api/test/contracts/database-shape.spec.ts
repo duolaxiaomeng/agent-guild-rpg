@@ -75,6 +75,69 @@ describe("prisma database shape", () => {
     expect(schema).toContain("@@index([status, updatedAt])");
   });
 
+  it("contains durable connector tasks, dependencies, leases and attempts", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+
+    expect(schema).toContain("enum AgentTaskStatus");
+    expect(schema).toContain("enum AgentTaskResourceClass");
+    expect(schema).toContain("model AgentTask");
+    expect(schema).toContain("model AgentTaskDependency");
+    expect(schema).toContain("model AgentTaskAttempt");
+    expect(schema).toContain("requiredCapabilities Json");
+    expect(schema).toContain("blockedByCount");
+    expect(schema).toMatch(/runId\s+String\s+@unique/);
+    expect(schema).toMatch(/heavyLeaseKey\s+String\?\s+@unique/);
+    expect(schema).toContain("leaseTokenHash");
+    expect(schema).toContain("leaseExpiresAt");
+    expect(schema).toContain("@@index([status, resourceClass, availableAt, priority])");
+    expect(schema).toContain("@@unique([taskId, dependencyTaskId])");
+    expect(schema).toContain("@@unique([taskId, attemptNumber])");
+  });
+
+  it("contains persistent private Agent workstation state", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const worldState = schema.match(/model AgentWorldState \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(schema).toContain("model AgentWorldState");
+    expect(worldState).toMatch(/studentId\s+String\s+@unique/);
+    expect(worldState).toMatch(/currentZone\s+String/);
+    expect(worldState).toMatch(/positionX\s+Float/);
+    expect(worldState).toMatch(/positionY\s+Float/);
+    expect(worldState).toMatch(/facing\s+String/);
+    expect(worldState).toMatch(/revision\s+Int/);
+  });
+
+  it("contains idempotency and classroom hot-path constraints", () => {
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const membership = schema.match(/model GuildMembership \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const event = schema.match(/model AgentEvent \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const submission = schema.match(/model AgentSubmission \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(schema).toMatch(/enum MembershipStatus \{[\s\S]*?declined[\s\S]*?\}/);
+    expect(schema).toMatch(/enum ReviewStatus \{[\s\S]*?needs_teacher[\s\S]*?\}/);
+    expect(membership).toContain("invitedById");
+    expect(membership).toContain("invitedAt");
+    expect(membership).toContain("respondedAt");
+    expect(event).toMatch(/eventId\s+String\s+@unique/);
+    expect(submission).toContain("clientRequestId");
+    expect(submission).toContain("pendingReviewKey");
+    expect(submission).toContain("@@unique([studentId, clientRequestId])");
+    expect(submission).toContain("@@index([studentId, dayId, submittedAt])");
+    expect(schema).toContain("@@index([granteeId, status, expiresAt])");
+    expect(schema).toContain("@@index([status, decidedAt])");
+    expect(schema).toContain("@@index([expiresAt])");
+
+    const migration = readFileSync(
+      resolve(
+        process.cwd(),
+        "prisma/migrations/20260714100000_multi_agent_classroom_hardening/migration.sql"
+      ),
+      "utf8"
+    );
+    expect(migration).toContain("GuildMembership_one_active_guild_per_student_key");
+    expect(migration).toContain('WHERE "status" = \'active\'');
+  });
+
   it("contains Day website lottery options and one draw per student", () => {
     const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
 
@@ -102,7 +165,7 @@ describe("prisma database shape", () => {
     expect(seed).toContain("连接自己的 Agent");
     expect(seed).toContain("迭代 Prompt");
     expect(seed).toContain("websiteLotteryOptions");
-    expect(seed).toContain("Agent 小红书笔记网站");
-    expect(seed).toContain("Agent 自定义主题");
+    expect(seed).toContain("小红书笔记网站");
+    expect(seed).toContain("自定义网站主题");
   });
 });

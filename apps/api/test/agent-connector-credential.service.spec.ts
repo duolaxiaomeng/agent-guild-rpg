@@ -8,6 +8,12 @@ describe("Agent connector credentials", () => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
     const transaction = {
+      user: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          role: "student",
+          agentTeamBinding: null,
+        }),
+      },
       agentSession: { create: vi.fn().mockResolvedValue({ id: "session-new" }) },
       agentConnector: {
         create: vi.fn().mockResolvedValue({

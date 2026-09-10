@@ -66,13 +66,18 @@ describe("login page", () => {
       user: {
         id: "student-new",
         role: "student",
-        displayName: "新同学"
+        displayName: "新同学",
+        cohort: {
+          id: "cohort-chuangshuo-agent-1",
+          name: "船说agent第一期班"
+        }
       }
     });
 
     render(<LoginPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "没有账号？注册" }));
+    expect(screen.getByText("当前注册码对应班级：船说agent第一期班")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("显示名称"), {
       target: { value: "新同学" }
     });

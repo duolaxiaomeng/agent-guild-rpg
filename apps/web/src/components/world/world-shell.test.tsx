@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorldShell, syncWorldScene } from "./world-shell";
 import type { DestroyableGame } from "./phaser-scene";
@@ -19,6 +19,9 @@ describe("WorldShell", () => {
     expect(mount.closest("section")).toHaveAttribute("data-hud-safe-bottom", "72");
     expect(screen.getByLabelText("任务日志")).toBeInTheDocument();
     expect(screen.getByText("世界加载中...")).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("世界工具栏")).getByRole("link", { name: /工会/ }),
+    ).toHaveAttribute("href", "/guilds");
   });
 
   it("renders four zone tab buttons", () => {
@@ -36,6 +39,19 @@ describe("WorldShell", () => {
     expect(tabs[0].textContent).toContain("工作室大厅");
   });
 
+  it("opens the requested Agent entrance zone", () => {
+    render(<WorldShell initialZone="collab-room" />);
+
+    expect(screen.getByRole("tab", { name: /协作室/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByLabelText("像素世界画布").closest("section")).toHaveAttribute(
+      "data-active-zone",
+      "collab-room",
+    );
+  });
+
   it("keeps every zone in the same compact top HUD layout", () => {
     render(<WorldShell />);
 
@@ -49,6 +65,18 @@ describe("WorldShell", () => {
     expect(navigation.closest("section")).toHaveAttribute("data-active-zone", "workstations");
     expect(navigation).toHaveClass("world-zone-nav");
     expect(screen.getByLabelText("世界工具栏")).toHaveClass("world-toolbar");
+  });
+
+  it("lets the user collapse the quest log from inside the open panel", () => {
+    render(<WorldShell />);
+
+    fireEvent.click(screen.getByRole("button", { name: "📋 任务日志" }));
+
+    const panel = screen.getByRole("region", { name: "任务日志" });
+    expect(panel).toHaveAttribute("aria-hidden", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "收起任务日志" }));
+    expect(panel).toHaveAttribute("aria-hidden", "true");
   });
 
   it("syncs Phaser scene to the selected zone", () => {

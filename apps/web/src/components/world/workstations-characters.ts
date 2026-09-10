@@ -68,7 +68,9 @@ export function buildCharacterRenderSpec(
         : isStaff
           ? "walking"
           : "breathing",
-    walkCycleFrames: pose === "walking" ? 2 : 1,
+    // Two source textures are blended into four body phases by the Phaser
+    // motion layer, which avoids the rigid A/B/A/B flipbook feeling.
+    walkCycleFrames: pose === "walking" ? 4 : 1,
     stridePx: pose === "walking" ? 4 : 0,
     seatedDeskPose: Boolean("seated" in actor && actor.seated),
     seatedFacing: actor.facing === "left" || actor.facing === "right" ? "side-desk" : "front",

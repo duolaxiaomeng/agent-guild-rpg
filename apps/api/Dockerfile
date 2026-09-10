@@ -17,7 +17,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN pnpm --filter api exec prisma generate \
+RUN node apps/api/scripts/sync-postgres-schema.cjs --check \
+  && pnpm --filter api exec prisma generate --schema apps/api/prisma/postgresql/schema.prisma \
   && pnpm --filter contracts build \
   && pnpm --filter api build
 
@@ -44,4 +45,3 @@ COPY --from=builder /workspace/packages/contracts/dist ./packages/contracts/dist
 EXPOSE 3001
 
 CMD ["node", "apps/api/dist/src/main.js"]
-

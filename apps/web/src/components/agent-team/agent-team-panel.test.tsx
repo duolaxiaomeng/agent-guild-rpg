@@ -91,4 +91,19 @@ describe("AgentTeamPanel", () => {
     expect(screen.getByText("当前没有可用的 Agent")).toBeInTheDocument();
     expect(screen.queryByRole("article")).not.toBeInTheDocument();
   });
+
+  it("keeps manual role selection behind the authenticated takeover entry", () => {
+    render(
+      <AgentTeamPanel
+        agents={agents}
+        token="session_student-1"
+        canBind
+      />,
+    );
+
+    expect(screen.getByText(/默认由本地 Agent/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选择角色" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "打开人工接管" }));
+    expect(screen.getAllByRole("button", { name: "选择角色" })).toHaveLength(3);
+  });
 });

@@ -1,16 +1,26 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Inject,
   NotFoundException,
   Param,
+  Put,
   Query,
   UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { IsIn } from "class-validator";
 import { AuthGuard } from "../../auth/auth.guard";
+import { CurrentUser } from "../../auth/current-user.decorator";
 import { AgentAvatarService } from "./agent-avatar.service";
+import { AgentWorldService } from "../../realtime/agent-world.service";
+
+class MoveAgentAvatarDto {
+  @IsIn(["lobby", "workstations", "collab-room", "review-station"])
+  zone!: "lobby" | "workstations" | "collab-room" | "review-station";
+}
 
 @ApiTags("agent-avatars")
 @ApiBearerAuth()
@@ -19,7 +29,9 @@ import { AgentAvatarService } from "./agent-avatar.service";
 export class AgentAvatarController {
   constructor(
     @Inject(AgentAvatarService)
-    private readonly avatarService: AgentAvatarService
+    private readonly avatarService: AgentAvatarService,
+    @Inject(AgentWorldService)
+    private readonly agentWorldService: AgentWorldService,
   ) {}
 
   /**
@@ -51,6 +63,39 @@ export class AgentAvatarController {
         : undefined;
 
     return this.avatarService.getAvatars(filterZone);
+  }
+
+  @ApiOperation({ summary: "移动当前使用者的 Agent 到指定区域" })
+  @Put("me/zone")
+  async moveMyAvatar(
+    @CurrentUser() user: { id: string },
+    @Body() body: MoveAgentAvatarDto,
+  ) {
+    const state = await this.avatarService.moveAvatar(user.id, body.zone);
+    if (!state) {
+      throw new NotFoundException(`Avatar for user ${user.id} not found`);
+    }
+    return state;
+  }
+
+  @ApiOperation({ summary: "获取当前学生的私人工位 Agent 状态" })
+  @Get("me")
+  async getMyAvatar(@CurrentUser() user: { id: string; role: string }) {
+    const state = await this.avatarService.getAvatarState(user.id);
+    if (!state) {
+      throw new NotFoundException(`Avatar for user ${user.id} not found`);
+    }
+    const movementLockReason = await this.agentWorldService.getMovementLock(user.id);
+    const position = await this.agentWorldService.getPosition(
+      user.id,
+      state.agentRole,
+    );
+    return {
+      ...state,
+      position,
+      movementLocked: movementLockReason !== null,
+      movementLockReason,
+    };
   }
 
   /**
